@@ -34,10 +34,10 @@ import {
   LuCheck,
   LuSettings,
 } from "react-icons/lu"
-import { useAppStore } from "./appStore"
-import { supabase, getSessionId, initializeSessionId } from "./supabase"
-import { streamChatWithFallback } from "./modelOrchestrator"
-import type { WritingProject, Character } from "./index"
+import { useAppStore } from "@/store/appStore"
+import { supabase, getSessionId, initializeSessionId } from "@/lib/supabase"
+import { streamChatWithFallback } from "@/lib/modelOrchestrator"
+import type { WritingProject, Character } from "@/types"
 import { v4 as uuidv4 } from "uuid"
 
 interface WritingSettings {
@@ -822,7 +822,7 @@ function ProjectsPanel({ projects, onCreate, onOpen, onDelete }: any) {
             <Text color="gray.600" fontSize="sm" mb="6">أنشئ مشروعك الأول لبدء الكتابة</Text>
             <Button onClick={onCreate} size="sm" colorPalette="brand" variant="outline" borderRadius="xl">
               <Icon as={LuPlus} mr="1.5" />
-              إنشاء مشروع
+              إنشاء ��شروع
             </Button>
           </Box>
         ) : (

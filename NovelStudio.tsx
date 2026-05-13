@@ -32,8 +32,8 @@ import {
   LuExpand,
   LuPlay,
 } from "react-icons/lu"
-import { useAppStore } from "./appStore"
-import { streamChatWithFallback } from "./modelOrchestrator"
+import { useAppStore } from "@/store/appStore"
+import { streamChatWithFallback } from "@/lib/modelOrchestrator"
 
 type NovelStage = "setup" | "outline" | "beats" | "writing" | "complete"
 
