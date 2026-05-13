@@ -28,6 +28,7 @@ export default defineConfig({
       "@/pages/ToolsPage": resolve(__dirname, "ToolsPage.tsx"),
       "@/pages/SettingsPage": resolve(__dirname, "SettingsPage.tsx"),
       "@/pages/DevStudio": resolve(__dirname, "DevStudio.tsx"),
+      "@/pages/AdminDashboard": resolve(__dirname, "AdminDashboard.tsx"),
     },
   },
   server: {

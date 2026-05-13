@@ -20,7 +20,7 @@ import {
   LuBookOpen,
   LuRefreshCw,
   LuTerminal,
-  LuLineChart,
+  LuChartLine,
   LuSparkles,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
@@ -105,7 +105,7 @@ export default function AdminDashboard() {
     {
       label: "Models Used",
       value: stats.uniqueModels,
-      icon: LuLineChart,
+      icon: LuChartLine,
       color: "#10b981",
       bg: "rgba(16,185,129,0.1)",
     },

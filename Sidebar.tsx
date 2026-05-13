@@ -28,6 +28,7 @@ import {
   LuMenu,
   LuX,
   LuTerminal,
+  LuShield,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId } from "@/lib/supabase"
