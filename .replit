@@ -47,3 +47,8 @@ deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 publicDir = "dist"
 run = ["node", "server.js"]
+
+[userenv]
+
+[userenv.shared]
+ADMIN_EMAIL = "joeshrp4@gmail.com"

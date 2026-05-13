@@ -24,11 +24,17 @@ import {
   LuMic,
   LuPalette,
   LuType,
+  LuShield,
+  LuMail,
+  LuUserCog,
 } from "react-icons/lu"
+import { useAppStore } from "@/store/appStore"
+import { toaster } from "@/components/ui/toaster"
 
 export default function SettingsPage() {
-  const { settings, updateSettings } = useAppStore()
+  const { settings, updateSettings, userEmail, setUserEmail, isAdmin } = useAppStore()
   const [saved, setSaved] = useState(false)
+  const [emailInput, setEmailInput] = useState(userEmail || "")
 
   const handleSaveSettings = () => {
     setSaved(true)
@@ -212,6 +218,61 @@ export default function SettingsPage() {
                 value={settings.ttsEnabled}
                 onChange={(v) => updateSettings({ ttsEnabled: v })}
               />
+            </VStack>
+          </SettingsCard>
+
+          {/* Account */}
+          <SettingsCard
+            icon={LuMail}
+            title="Account"
+            description="Set your email for admin access"
+            accentColor="blue"
+          >
+            <VStack gap="4" align="stretch">
+              <Box>
+                <HStack gap="2" mb="2">
+                  <Text fontSize="sm" fontWeight="500" color="gray.300">Email Address</Text>
+                  {isAdmin && (
+                    <Badge colorPalette="green" variant="subtle" size="xs">
+                      <Icon as={LuShield} boxSize="10px" mr="1" />
+                      Admin
+                    </Badge>
+                  )}
+                </HStack>
+                <Input
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  bg="rgba(10,10,15,0.8)"
+                  border="1px solid"
+                  borderColor="rgba(99,102,241,0.2)"
+                  color="white"
+                  fontSize="xs"
+                  borderRadius="xl"
+                  placeholder="your@email.com"
+                  _focus={{ borderColor: "brand.500", outline: "none" }}
+                />
+                <Text fontSize="2xs" color="gray.600" mt="1.5">
+                  Enter your email to unlock developer features if you are the admin.
+                </Text>
+              </Box>
+              <Button
+                size="sm"
+                bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
+                color="white"
+                borderRadius="xl"
+                onClick={() => {
+                  setUserEmail(emailInput.trim() || null)
+                  if (emailInput.trim()) {
+                    toaster.create({
+                      title: isAdmin ? "Admin access granted" : "Email saved",
+                      type: isAdmin ? "success" : "info",
+                    })
+                  }
+                }}
+              >
+                <Icon as={LuUserCog} mr="1.5" boxSize="12px" />
+                {isAdmin ? "Update Admin Access" : "Save Email"}
+              </Button>
             </VStack>
           </SettingsCard>
 

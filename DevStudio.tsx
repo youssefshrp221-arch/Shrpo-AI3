@@ -29,6 +29,7 @@ import {
   LuPanelLeft,
   LuCode,
 } from "react-icons/lu"
+import { useAppStore } from "@/store/appStore"
 import { toaster } from "@/components/ui/toaster"
 
 interface FileItem {
@@ -43,6 +44,7 @@ type PanelId = "explorer" | "editor" | "ai"
 export default function DevStudio() {
   const isMobile = useBreakpointValue({ base: true, md: false })
   const [activePanel, setActivePanel] = useState<PanelId>("explorer")
+  const userEmail = useAppStore((s) => s.userEmail)
 
   const [files, setFiles] = useState<string[]>([])
   const [activeFile, setActiveFile] = useState<string | null>(null)
@@ -59,15 +61,19 @@ export default function DevStudio() {
   // Load file list
   const loadFiles = useCallback(async () => {
     try {
-      const res = await fetch("/api/dev/files")
+      const res = await fetch("/api/dev/files", {
+        headers: { "x-user-email": userEmail || "" },
+      })
       const data = await res.json()
       if (data.files) {
         setFiles(data.files.sort())
+      } else if (data.error) {
+        toaster.create({ title: data.error, type: "error" })
       }
     } catch (err) {
       console.error("Failed to load files", err)
     }
-  }, [])
+  }, [userEmail])
 
   useEffect(() => {
     loadFiles()
@@ -77,7 +83,9 @@ export default function DevStudio() {
   const openFile = async (filePath: string) => {
     setLoadingFile(true)
     try {
-      const res = await fetch(`/api/dev/file?path=${encodeURIComponent(filePath)}`)
+      const res = await fetch(`/api/dev/file?path=${encodeURIComponent(filePath)}`, {
+        headers: { "x-user-email": userEmail || "" },
+      })
       const data = await res.json()
       if (data.content !== undefined) {
         setActiveFile(filePath)
@@ -110,7 +118,10 @@ export default function DevStudio() {
     try {
       const response = await fetch("/api/dev/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": userEmail || "",
+        },
         body: JSON.stringify({
           messages: [
             { role: "system", content: system },
@@ -182,7 +193,10 @@ export default function DevStudio() {
     try {
       const res = await fetch("/api/dev/apply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": userEmail || "",
+        },
         body: JSON.stringify({ path: activeFile, content: fileContent }),
       })
       const data = await res.json()

@@ -3,12 +3,14 @@ import { persist } from "zustand/middleware"
 import type { Chat, Message, AppSettings, WritingProject } from "@/types"
 import { DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT } from "@/types"
 
+const ADMIN_EMAIL = "joeshrp4@gmail.com"
+
 interface AppStore {
   // Active state
   activeChatId: string | null
   setActiveChatId: (id: string | null) => void
-  activeView: "chat" | "writing" | "novel" | "tools" | "settings" | "dev"
-  setActiveView: (view: "chat" | "writing" | "novel" | "tools" | "settings" | "dev") => void
+  activeView: "chat" | "writing" | "novel" | "tools" | "settings" | "dev" | "admin"
+  setActiveView: (view: "chat" | "writing" | "novel" | "tools" | "settings" | "dev" | "admin") => void
   activeWritingProjectId: string | null
   setActiveWritingProjectId: (id: string | null) => void
 
@@ -45,6 +47,13 @@ interface AppStore {
   addLocalChat: (chat: Chat) => void
   updateLocalChat: (chatId: string, updates: Partial<Chat>) => void
   removeLocalChat: (chatId: string) => void
+
+  // Auth & Admin
+  userEmail: string | null
+  setUserEmail: (email: string | null) => void
+  isAdmin: boolean
+  setIsAdmin: (admin: boolean) => void
+  checkAdmin: (email: string) => boolean
 }
 
 export const useAppStore = create<AppStore>()(
@@ -123,6 +132,15 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           localChats: state.localChats.filter((c) => c.id !== chatId),
         })),
+
+      // Auth & Admin
+      userEmail: null,
+      setUserEmail: (email) => {
+        set({ userEmail: email, isAdmin: email === ADMIN_EMAIL })
+      },
+      isAdmin: false,
+      setIsAdmin: (admin) => set({ isAdmin: admin }),
+      checkAdmin: (email) => email === ADMIN_EMAIL,
     }),
     {
       name: "shrpo-ai-store",
@@ -135,6 +153,8 @@ export const useAppStore = create<AppStore>()(
         activeWritingProjectId: state.activeWritingProjectId,
         activeChatId: state.activeChatId,
         activeView: state.activeView,
+        userEmail: state.userEmail,
+        isAdmin: state.isAdmin,
       }),
     }
   )

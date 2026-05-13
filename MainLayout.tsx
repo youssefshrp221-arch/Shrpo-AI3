@@ -7,6 +7,7 @@ import NovelStudio from "@/pages/NovelStudio"
 import ToolsPage from "@/pages/ToolsPage"
 import SettingsPage from "@/pages/SettingsPage"
 import DevStudio from "@/pages/DevStudio"
+import AdminDashboard from "@/pages/AdminDashboard"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId, initializeSessionId } from "@/lib/supabase"
 import { v4 as uuidv4 } from "uuid"
@@ -17,6 +18,7 @@ export default function MainLayout() {
     activeView, setActiveView,
     activeChatId, setActiveChatId,
     addLocalChat, localChats,
+    isAdmin,
   } = useAppStore()
 
   const createNewChat = async () => {
@@ -51,13 +53,18 @@ export default function MainLayout() {
 
   // Auto-select or create first chat
   useEffect(() => {
+    // Guard: non-admin trying to access dev/admin view → redirect to novel
+    if ((activeView === "dev" || activeView === "admin") && !isAdmin) {
+      setActiveView("novel")
+      return
+    }
     if (localChats.length > 0 && !activeChatId) {
       setActiveChatId(localChats[0].id)
       setActiveView("chat")
     } else if (localChats.length === 0 && !activeChatId) {
       createNewChat()
     }
-  }, [])
+  }, [activeView, isAdmin])
 
   return (
     <Flex h="100vh" overflow="hidden" bg="#0a0a0f" flexDirection={{ base: "column", md: "row" }}>
@@ -76,7 +83,8 @@ export default function MainLayout() {
         {activeView === "novel" && <NovelStudio />}
         {activeView === "tools" && <ToolsPage />}
         {activeView === "settings" && <SettingsPage />}
-        {activeView === "dev" && <DevStudio />}
+        {activeView === "dev" && isAdmin ? <DevStudio /> : null}
+        {activeView === "admin" && isAdmin ? <AdminDashboard /> : null}
       </Box>
     </Flex>
   )

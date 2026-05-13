@@ -61,6 +61,17 @@ app.post("/api/chat", async (req, res) => {
 const distPath = path.join(__dirname, "dist")
 app.use(express.static(distPath))
 
+// ── Admin middleware ────────────────────────────────────────────────────
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "joeshrp4@gmail.com"
+
+function requireAdmin(req, res, next) {
+  const userEmail = req.headers["x-user-email"]
+  if (userEmail !== ADMIN_EMAIL) {
+    return res.status(403).json({ error: "Forbidden — admin only" })
+  }
+  next()
+}
+
 // ── Dev Studio API ──────────────────────────────────────────────────────
 
 // List project files (safe filter)
@@ -72,7 +83,7 @@ function isBlocked(filePath) {
   return BLOCKED_PATHS.some((b) => normalized.includes(b))
 }
 
-app.get("/api/dev/files", (_req, res) => {
+app.get("/api/dev/files", requireAdmin, (req, res) => {
   try {
     const files = []
     function walk(dir, prefix = "") {
@@ -96,7 +107,7 @@ app.get("/api/dev/files", (_req, res) => {
 })
 
 // Read a specific file
-app.get("/api/dev/file", (req, res) => {
+app.get("/api/dev/file", requireAdmin, (req, res) => {
   const filePath = req.query.path
   if (!filePath || typeof filePath !== "string") {
     return res.status(400).json({ error: "Missing path" })
@@ -114,7 +125,7 @@ app.get("/api/dev/file", (req, res) => {
 })
 
 // Write a specific file (Apply Changes)
-app.post("/api/dev/apply", (req, res) => {
+app.post("/api/dev/apply", requireAdmin, (req, res) => {
   const { path: filePath, content } = req.body
   if (!filePath || typeof filePath !== "string" || typeof content !== "string") {
     return res.status(400).json({ error: "Missing path or content" })
@@ -132,7 +143,7 @@ app.post("/api/dev/apply", (req, res) => {
 })
 
 // Generate code using hardcoded coder model
-app.post("/api/dev/generate", async (req, res) => {
+app.post("/api/dev/generate", requireAdmin, async (req, res) => {
   const apiKey = process.env.NVIDIA_API_KEY
   if (!apiKey) {
     return res.status(500).json({ error: "Server not configured — NVIDIA API key missing" })
