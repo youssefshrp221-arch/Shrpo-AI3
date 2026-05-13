@@ -7,12 +7,11 @@ import {
   Text,
   Button,
   Flex,
-  Input,
   Badge,
   Textarea,
   Icon,
-  Separator,
   Spinner,
+  useBreakpointValue,
 } from "@chakra-ui/react"
 import {
   LuTerminal,
@@ -27,6 +26,8 @@ import {
   LuX,
   LuChevronRight,
   LuSparkles,
+  LuPanelLeft,
+  LuCode,
 } from "react-icons/lu"
 import { toaster } from "@/components/ui/toaster"
 
@@ -37,7 +38,12 @@ interface FileItem {
 
 const CODER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
 
+type PanelId = "explorer" | "editor" | "ai"
+
 export default function DevStudio() {
+  const isMobile = useBreakpointValue({ base: true, md: false })
+  const [activePanel, setActivePanel] = useState<PanelId>("explorer")
+
   const [files, setFiles] = useState<string[]>([])
   const [activeFile, setActiveFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>("")
@@ -83,6 +89,7 @@ export default function DevStudio() {
         if (!openFiles.includes(filePath)) {
           setOpenFiles((prev) => [...prev, filePath])
         }
+        if (isMobile) setActivePanel("editor")
       }
     } catch (err) {
       toaster.create({ title: "Error loading file", type: "error" })
@@ -224,6 +231,32 @@ export default function DevStudio() {
     fileTree[folder].push(f)
   })
 
+  const panelBtn = (id: PanelId, label: string, icon: any, count?: number | string) => (
+    <Button
+      key={id}
+      size="sm"
+      flex="1"
+      variant={activePanel === id ? "solid" : "ghost"}
+      colorScheme={activePanel === id ? "brand" : undefined}
+      bg={activePanel === id ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "transparent"}
+      color={activePanel === id ? "white" : "gray.500"}
+      borderRadius="0"
+      borderTop={activePanel === id ? "2px solid" : "none"}
+      borderColor="brand.400"
+      py="3"
+      h="auto"
+      onClick={() => setActivePanel(id)}
+    >
+      <VStack gap="0.5">
+        <Icon as={icon} boxSize="18px" />
+        <Text fontSize="2xs">{label}</Text>
+        {count !== undefined && (
+          <Text fontSize="2xs" opacity={0.7}>{count}</Text>
+        )}
+      </VStack>
+    </Button>
+  )
+
   return (
     <Box h="100%" bg="#0a0a0f" display="flex" flexDirection="column" overflow="hidden">
       {/* Header */}
@@ -235,7 +268,7 @@ export default function DevStudio() {
         bg="rgba(10,10,15,0.95)"
         flexShrink={0}
       >
-        <HStack gap="3" alignItems="center">
+        <HStack gap="2" alignItems="center" flexWrap="wrap">
           <Icon as={LuTerminal} boxSize="18px" color="brand.400" />
           <Text fontSize="sm" fontWeight="700" color="white">
             Dev Studio
@@ -261,16 +294,18 @@ export default function DevStudio() {
       </Box>
 
       {/* Body */}
-      <Flex flex="1" overflow="hidden">
+      <Flex flex="1" overflow="hidden" direction={{ base: "column", md: "row" }}>
         {/* File Explorer */}
         <Box
-          w="220px"
+          w={{ base: "full", md: "220px" }}
           flexShrink={0}
-          borderRight="1px solid"
+          borderRight={{ base: "none", md: "1px solid" }}
+          borderBottom={{ base: "1px solid", md: "none" }}
           borderColor="rgba(99,102,241,0.1)"
           bg="rgba(10,10,15,0.6)"
           overflowY="auto"
           py="2"
+          display={{ base: isMobile && activePanel !== "explorer" ? "none" : "block", md: "block" }}
         >
           <Text fontSize="2xs" color="gray.600" fontWeight="700" px="3" py="1" letterSpacing="0.08em" textTransform="uppercase">
             Explorer
@@ -291,7 +326,7 @@ export default function DevStudio() {
                     alignItems="center"
                     gap="1.5"
                     px="5"
-                    py="1"
+                    py="1.5"
                     cursor="pointer"
                     borderRadius="md"
                     color={isActive ? "brand.300" : "gray.500"}
@@ -311,7 +346,9 @@ export default function DevStudio() {
         </Box>
 
         {/* Editor + AI Panel */}
-        <Flex flex="1" direction="column" overflow="hidden">
+        <Flex flex="1" direction="column" overflow="hidden"
+          display={{ base: isMobile && activePanel === "explorer" ? "none" : "flex", md: "flex" }}
+        >
           {/* Tabs */}
           {openFiles.length > 0 && (
             <HStack
@@ -364,9 +401,14 @@ export default function DevStudio() {
             </HStack>
           )}
 
-          <Flex flex="1" overflow="hidden">
+          <Flex flex="1" overflow="hidden" direction={{ base: "column", md: "row" }}>
             {/* Editor */}
-            <Box flex="1" overflow="hidden" position="relative">
+            <Box
+              flex="1"
+              overflow="hidden"
+              position="relative"
+              display={{ base: isMobile && activePanel !== "editor" ? "none" : "block", md: "block" }}
+            >
               {activeFile ? (
                 <>
                   <Editor
@@ -379,12 +421,13 @@ export default function DevStudio() {
                     }}
                     theme="vs-dark"
                     options={{
-                      fontSize: 13,
+                      fontSize: isMobile ? 12 : 13,
                       minimap: { enabled: false },
                       scrollBeyondLastLine: false,
                       automaticLayout: true,
                       tabSize: 2,
                       wordWrap: "on",
+                      scrollbar: { alwaysConsumeMouseWheel: false },
                     }}
                     loading={
                       <Box display="flex" alignItems="center" justifyContent="center" h="100%">
@@ -455,12 +498,13 @@ export default function DevStudio() {
 
             {/* AI Panel */}
             <Box
-              w="340px"
+              w={{ base: "full", md: "340px" }}
               flexShrink={0}
-              borderLeft="1px solid"
+              borderLeft={{ base: "none", md: "1px solid" }}
+              borderTop={{ base: "1px solid", md: "none" }}
               borderColor="rgba(99,102,241,0.1)"
               bg="rgba(10,10,15,0.6)"
-              display="flex"
+              display={{ base: isMobile && activePanel !== "ai" ? "none" : "flex", md: "flex" }}
               flexDirection="column"
             >
               <Box px="3" py="2" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)">
@@ -487,12 +531,12 @@ export default function DevStudio() {
                     border="1px solid"
                     borderColor="rgba(99,102,241,0.2)"
                     color="white"
-                    minH="80px"
+                    minH={{ base: "60px", md: "80px" }}
                     _placeholder={{ color: "gray.600" }}
                     _focus={{ borderColor: "brand.500", outline: "none" }}
                   />
                   <Button
-                    size="sm"
+                    size={{ base: "md", md: "sm" }}
                     w="full"
                     bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
                     color="white"
@@ -524,7 +568,7 @@ export default function DevStudio() {
                       p="2"
                       fontSize="xs"
                       color="gray.300"
-                      maxH="200px"
+                      maxH={{ base: "160px", md: "200px" }}
                       overflowY="auto"
                       whiteSpace="pre-wrap"
                       fontFamily="mono"
@@ -534,7 +578,7 @@ export default function DevStudio() {
 
                     {pendingCode && (
                       <Button
-                        size="xs"
+                        size={{ base: "sm", md: "xs" }}
                         mt="2"
                         w="full"
                         bg="rgba(34,197,94,0.2)"
@@ -542,10 +586,10 @@ export default function DevStudio() {
                         border="1px solid"
                         borderColor="rgba(34,197,94,0.3)"
                         _hover={{ bg: "rgba(34,197,94,0.3)" }}
-                        onClick={applyChanges}
+                        onClick={() => { applyChanges(); if (isMobile) setActivePanel("editor") }}
                       >
                         <Icon as={LuPlay} boxSize="12px" mr="1" />
-                        Apply Changes to Editor
+                        Apply Changes
                       </Button>
                     )}
                   </Box>
@@ -561,6 +605,22 @@ export default function DevStudio() {
           </Flex>
         </Flex>
       </Flex>
+
+      {/* Mobile bottom nav */}
+      {isMobile && (
+        <HStack
+          borderTop="1px solid"
+          borderColor="rgba(99,102,241,0.15)"
+          bg="rgba(10,10,15,0.95)"
+          flexShrink={0}
+          spacing="0"
+          h="auto"
+        >
+          {panelBtn("explorer", "Files", LuPanelLeft, Object.values(fileTree).flat().length)}
+          {panelBtn("editor", "Editor", LuCode, openFiles.length)}
+          {panelBtn("ai", "AI", LuSparkles)}
+        </HStack>
+      )}
     </Box>
   )
 }
