@@ -1,9 +1,20 @@
 import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ""
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ""
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const isValidUrl = (url: string) => {
+  try {
+    const u = new URL(url)
+    return u.protocol === "http:" || u.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+export const supabase = isValidUrl(supabaseUrl)
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : (null as any)
 
 let sessionId = ''
 

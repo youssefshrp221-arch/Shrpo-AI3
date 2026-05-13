@@ -167,7 +167,7 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
             value={input}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            placeholder={{ base: "Message Shrpo...", md: "Message Shrpo AI... (Enter to send, Shift+Enter for new line)" }}
+            placeholder="Message Shrpo AI... (Enter to send, Shift+Enter for new line)"
             rows={1}
             w="full"
             bg="transparent"
