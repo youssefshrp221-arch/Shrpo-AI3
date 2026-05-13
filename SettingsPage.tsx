@@ -25,23 +25,15 @@ import {
   LuPalette,
   LuType,
 } from "react-icons/lu"
-import { useAppStore } from "@/store/appStore"
-import { toaster } from "@/components/ui/toaster"
-import { LuKey } from "react-icons/lu"
 
 export default function SettingsPage() {
-  const { settings, updateSettings, clearApiKey, apiKey } = useAppStore()
+  const { settings, updateSettings } = useAppStore()
   const [saved, setSaved] = useState(false)
 
   const handleSaveSettings = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     toaster.create({ title: "Settings saved", type: "success" })
-  }
-
-  const handleChangeApiKey = () => {
-    clearApiKey()
-    toaster.create({ title: "API Key cleared", description: "Please enter your new NVIDIA API key", type: "info" })
   }
 
   const fontOptions = ["sm", "md", "lg"]
@@ -238,21 +230,6 @@ export default function SettingsPage() {
             >
               <Icon as={saved ? LuCheck : LuSave} mr="2" boxSize="14px" />
               {saved ? "Settings Saved!" : "Save Settings"}
-            </Button>
-            <Button
-              onClick={handleChangeApiKey}
-              bg="rgba(239,68,68,0.1)"
-              color="red.400"
-              border="1px solid"
-              borderColor="rgba(239,68,68,0.2)"
-              borderRadius="xl"
-              _hover={{ bg: "rgba(239,68,68,0.2)", borderColor: "rgba(239,68,68,0.4)" }}
-              transition="all 0.2s"
-              h="11"
-              px="4"
-            >
-              <Icon as={LuKey} mr="2" boxSize="14px" />
-              Change API Key
             </Button>
           </HStack>
         </VStack>

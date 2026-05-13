@@ -4,7 +4,6 @@ export interface StreamOptions {
   onChunk: (chunk: string) => void
   signal: AbortSignal
   temperature?: number
-  apiKey: string
 }
 
 export interface StreamResult {
@@ -74,8 +73,7 @@ async function streamChatOnce(
         options.onChunk(chunk)
       }
     },
-    options.signal,
-    options.apiKey
+    options.signal
   )
 
   if (fullContent.trim().length === 0) {

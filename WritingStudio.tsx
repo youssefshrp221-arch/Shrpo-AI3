@@ -57,7 +57,7 @@ interface StoryEvent {
 }
 
 export default function WritingStudio() {
-  const { selectedModel, settings, apiKey } = useAppStore()
+  const { selectedModel, settings } = useAppStore()
 
   const [projects, setProjects] = useState<WritingProject[]>([])
   const [activeProject, setActiveProject] = useState<WritingProject | null>(null)

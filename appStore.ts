@@ -4,11 +4,6 @@ import type { Chat, Message, AppSettings, WritingProject } from "@/types"
 import { DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT } from "@/types"
 
 interface AppStore {
-  // API Key
-  apiKey: string | null
-  setApiKey: (key: string) => void
-  clearApiKey: () => void
-
   // Active state
   activeChatId: string | null
   setActiveChatId: (id: string | null) => void
@@ -55,10 +50,6 @@ interface AppStore {
 export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
-      apiKey: null,
-      setApiKey: (key) => set({ apiKey: key }),
-      clearApiKey: () => set({ apiKey: null }),
-
       activeChatId: null,
       setActiveChatId: (id) => set({ activeChatId: id }),
       activeView: "chat",
@@ -136,7 +127,6 @@ export const useAppStore = create<AppStore>()(
     {
       name: "shrpo-ai-store",
       partialize: (state) => ({
-        apiKey: state.apiKey,
         settings: state.settings,
         selectedModel: state.selectedModel,
         sidebarOpen: state.sidebarOpen,

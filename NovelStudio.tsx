@@ -75,7 +75,7 @@ const STAGE_MODELS = {
 }
 
 export default function NovelStudio() {
-  const { settings, apiKey, selectedModel } = useAppStore()
+  const { settings, selectedModel } = useAppStore()
   const [currentStage, setCurrentStage] = useState<NovelStage>("setup")
   const [isLoading, setIsLoading] = useState(false)
   const [streamingText, setStreamingText] = useState("")
@@ -246,7 +246,6 @@ ${novelSettings.additionalContext ? `سياق إضافي:\n${novelSettings.addit
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: 0.7,
-          apiKey: apiKey!,
         }
       )
 
@@ -295,7 +294,6 @@ ${novelSettings.pov ? `وجهة النظر: ${novelSettings.pov}` : ""}
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: 0.6,
-          apiKey: apiKey!,
         }
       )
 
@@ -347,7 +345,6 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: settings.temperature,
-          apiKey: apiKey!,
         }
       )
 
