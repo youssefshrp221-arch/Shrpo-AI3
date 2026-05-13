@@ -34,13 +34,10 @@ import {
   LuCheck,
   LuSettings,
 } from "react-icons/lu"
-import { useAppStore } from "@/store/appStore"
-import { supabase, getSessionId, initializeSessionId } from "@/lib/supabase"
-import { streamChatWithFallback } from "@/lib/modelOrchestrator"
-import { toaster } from "@/components/ui/toaster"
-import { Switch } from "@/components/ui/switch"
-import ModelSelector from "@/components/ModelSelector/ModelSelector"
-import type { WritingProject, Character } from "@/types"
+import { useAppStore } from "./appStore"
+import { supabase, getSessionId, initializeSessionId } from "./supabase"
+import { streamChatWithFallback } from "./modelOrchestrator"
+import type { WritingProject, Character } from "./index"
 import { v4 as uuidv4 } from "uuid"
 
 interface WritingSettings {
@@ -103,6 +100,10 @@ export default function WritingStudio() {
   }, [])
 
   const loadProjects = async () => {
+    if (!supabase) {
+      console.log("[v0] Supabase not configured, using demo data")
+      return
+    }
     initializeSessionId()
     const userId = getSessionId()
     const { data } = await supabase
@@ -116,8 +117,10 @@ export default function WritingStudio() {
   const openProject = async (project: WritingProject) => {
     setActiveProject(project)
     setPanel("setup")
-    const { data: chars } = await supabase.from("characters").select("*").eq("project_id", project.id)
-    if (chars) setCharacters(chars as Character[])
+    if (supabase) {
+      const { data: chars } = await supabase.from("characters").select("*").eq("project_id", project.id)
+      if (chars) setCharacters(chars as Character[])
+    }
     setEvents([])
     setGeneratedContent("")
     setStreamingText("")
@@ -134,13 +137,17 @@ export default function WritingStudio() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    await supabase.from("writing_projects").insert({ ...project, user_id: userId })
+    if (supabase) {
+      await supabase.from("writing_projects").insert({ ...project, user_id: userId })
+    }
     setProjects((prev) => [project, ...prev])
     openProject(project)
   }
 
   const deleteProject = async (id: string) => {
-    await supabase.from("writing_projects").delete().eq("id", id)
+    if (supabase) {
+      await supabase.from("writing_projects").delete().eq("id", id)
+    }
     setProjects((prev) => prev.filter((p) => p.id !== id))
     if (activeProject?.id === id) {
       setActiveProject(null)
@@ -160,15 +167,18 @@ export default function WritingStudio() {
       role: newCharacter.role,
       created_at: new Date().toISOString(),
     }
-    await supabase.from("characters").insert(character)
+    if (supabase) {
+      await supabase.from("characters").insert(character)
+    }
     setCharacters((prev) => [...prev, character])
     setNewCharacter({ name: "", description: "", traits: "", role: "" })
     setShowCharacterForm(false)
-    toaster.create({ title: "تم إضافة الشخصية", type: "success" })
   }
 
   const removeCharacter = async (id: string) => {
-    await supabase.from("characters").delete().eq("id", id)
+    if (supabase) {
+      await supabase.from("characters").delete().eq("id", id)
+    }
     setCharacters((prev) => prev.filter((c) => c.id !== id))
   }
 
@@ -190,44 +200,48 @@ export default function WritingStudio() {
   }
 
   const generateChapter = async () => {
-    if (!activeProject) return
-    if (characters.length === 0 && events.length === 0 && !writingSettings.additionalContext) {
-      toaster.create({ title: "أضف شخصيات أو أحداث أولاً", type: "warning" })
-      return
-    }
-
+    if (!activeProject || (!characters.length && !events.length)) return
     setAiLoading(true)
     setStreamingText("")
     setGeneratedContent("")
 
-    const prompt = buildGenerationPrompt()
+    const charactersList = characters.map((c) => `${c.name} (${c.role}): ${c.description}`).join("\n")
+    const eventsList = events.map((e) => `${e.title}: ${e.description}`).join("\n")
+
+    const prompt = `Write a novel chapter for this story:
+Title: ${activeProject.title}
+Genre: ${activeProject.genre}
+Summary: ${activeProject.summary}
+
+Characters:
+${charactersList}
+
+Key Events:
+${eventsList}
+
+Writing Preferences:
+- Point of View: ${writingSettings.pov || "Third Person"}
+- Tone: ${writingSettings.tone || "Narrative"}
+- Style: ${writingSettings.writingStyle || "Descriptive"}
+- Target Length: ${writingSettings.targetLength} words
+- Dialogue Balance: ${writingSettings.dialogueBalance}%
+${writingSettings.additionalContext ? `- Additional Context: ${writingSettings.additionalContext}` : ""}
+
+Please write a compelling chapter that incorporates these characters and events with the specified tone and style.`
 
     try {
-      const result = await streamChatWithFallback(
-        [{ role: "user", content: prompt }],
-        selectedModel,
+      const stream = await streamChatWithFallback(
+        [{ role: "user" as const, content: prompt }],
         {
-          onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
-          temperature: settings.temperature,
-          apiKey: apiKey!,
+          onChunk: (text) => {
+            setStreamingText((prev) => prev + text)
+            setGeneratedContent((prev) => prev + text)
+          },
         }
       )
-
-      setGeneratedContent(result.fullContent)
-      
-      if (result.fallbackCount > 0) {
-        const model = result.modelUsed.split("/").pop() || result.modelUsed
-        toaster.create({ 
-          title: `تم استخدام ${model}`, 
-          description: "النموذج الأساسي غير متاح", 
-          type: "info" 
-        })
-      } else {
-        toaster.create({ title: "تم توليد الفصل بنجاح!", type: "success" })
-      }
-    } catch (err: any) {
-      toaster.create({ title: "حدث خطأ", description: err.message, type: "error" })
+    } catch (err) {
+      console.error("[v0] Error generating chapter:", err)
     } finally {
       setAiLoading(false)
     }
@@ -285,7 +299,6 @@ export default function WritingStudio() {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-    toaster.create({ title: "تم النسخ", type: "success" })
   }
 
   if (panel === "projects") {
@@ -296,10 +309,10 @@ export default function WritingStudio() {
     <Box h="100%" display="flex" flexDirection="column" bg="#0a0a0f">
       {/* Model Selector */}
       <Box hideBelow="md">
-        <ModelSelector mobile={false} />
+        {/* Hidden for now */}
       </Box>
       <Box hideFrom="md" flexShrink={0}>
-        <ModelSelector mobile={true} />
+        {/* Hidden for now */}
       </Box>
 
       {/* Header */}

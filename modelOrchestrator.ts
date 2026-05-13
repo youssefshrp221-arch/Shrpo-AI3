@@ -1,4 +1,4 @@
-import { MODEL_FALLBACK_CHAIN, MODEL_REGISTRY, SAFE_FALLBACK_MODEL } from "@/types"
+import { MODEL_FALLBACK_CHAIN, MODEL_REGISTRY, SAFE_FALLBACK_MODEL } from "./index"
 
 export interface StreamOptions {
   onChunk: (chunk: string) => void

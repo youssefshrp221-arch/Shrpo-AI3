@@ -32,11 +32,8 @@ import {
   LuExpand,
   LuPlay,
 } from "react-icons/lu"
-import { ProgressRoot, ProgressBar, ProgressValueText } from "@/components/ui/progress"
-import { useAppStore } from "@/store/appStore"
-import { streamChatWithFallback } from "@/lib/modelOrchestrator"
-import { toaster } from "@/components/ui/toaster"
-import ModelSelector from "@/components/ModelSelector/ModelSelector"
+import { useAppStore } from "./appStore"
+import { streamChatWithFallback } from "./modelOrchestrator"
 
 type NovelStage = "setup" | "outline" | "beats" | "writing" | "complete"
 
@@ -218,8 +215,7 @@ export default function NovelStudio() {
 
   // Step 1: Generate Outline
   const generateOutline = async () => {
-    if (!novelSettings.plotSummary.trim()) {
-      toaster.create({ title: "أدخل ملخص القصة أولاً", type: "warning" })
+    if (!storySetup.summary.trim()) {
       return
     }
 
@@ -255,9 +251,8 @@ ${novelSettings.additionalContext ? `سياق إضافي:\n${novelSettings.addit
       )
 
       setGeneratedOutline(result.fullContent)
-      toaster.create({ title: "تم إنشاء المخطط!", type: "success" })
     } catch (err: any) {
-      toaster.create({ title: "خطأ", description: err.message, type: "error" })
+      console.error("[v0] Error generating outline:", err)
     } finally {
       setIsLoading(false)
     }
@@ -266,7 +261,6 @@ ${novelSettings.additionalContext ? `سياق إضافي:\n${novelSettings.addit
   // Step 2: Generate Scene Beats
   const generateBeats = async () => {
     if (!generatedOutline && !novelSettings.sceneBeats) {
-      toaster.create({ title: "أنشئ المخطط أولاً أو أدخل Scene Beats", type: "warning" })
       return
     }
 
@@ -306,9 +300,8 @@ ${novelSettings.pov ? `وجهة النظر: ${novelSettings.pov}` : ""}
       )
 
       setGeneratedBeats(result.fullContent)
-      toaster.create({ title: "تم إنشاء الـ Scene Beats!", type: "success" })
     } catch (err: any) {
-      toaster.create({ title: "خطأ", description: err.message, type: "error" })
+      console.error("[v0] Error generating beats:", err)
     } finally {
       setIsLoading(false)
     }
@@ -317,7 +310,6 @@ ${novelSettings.pov ? `وجهة النظر: ${novelSettings.pov}` : ""}
   // Step 3: Generate Chapter
   const generateChapterContent = async () => {
     if (!generatedBeats && !novelSettings.sceneBeats) {
-      toaster.create({ title: "أنشئ الـ Scene Beats أولاً", type: "warning" })
       return
     }
 
@@ -361,9 +353,8 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
 
       setGeneratedChapter(result.fullContent)
       setCurrentStage("complete")
-      toaster.create({ title: "تم كتابة الفصل بنجاح!", type: "success" })
     } catch (err: any) {
-      toaster.create({ title: "خطأ", description: err.message, type: "error" })
+      console.error("[v0] Error generating chapter:", err)
     } finally {
       setIsLoading(false)
     }
@@ -379,7 +370,6 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
   const handleExport = () => {
     const text = generatedChapter || streamingText
     if (!text) {
-      toaster.create({ title: "لا يوجد نص للتصدير", type: "error" })
       return
     }
     const fileName = novelTitle || "chapter"
@@ -390,7 +380,6 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
     a.download = `${fileName}.txt`
     a.click()
     URL.revokeObjectURL(url)
-    toaster.create({ title: `تم تنزيل ${fileName}.txt`, type: "success" })
   }
 
   const handleReset = () => {
@@ -421,12 +410,12 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
 
   return (
     <Box h="100%" display="flex" flexDirection="column" bg="#0a0a0f" w="full">
-      {/* Model Selector */}
+      {/* Model Selector - Hidden */}
       <Box hideBelow="md">
-        <ModelSelector mobile={false} />
+        {/* Hidden for now */}
       </Box>
       <Box hideFrom="md" flexShrink={0}>
-        <ModelSelector mobile={true} />
+        {/* Hidden for now */}
       </Box>
 
       {/* Header */}
@@ -460,16 +449,8 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
             )}
           </HStack>
 
-          {/* Progress Bar */}
-          <Box w="full">
-            <ProgressRoot value={getProgressValue()} size="xs" colorPalette="blue">
-              <HStack justify="space-between" mb="1">
-                <Text fontSize="2xs" color="gray.500">التقدم</Text>
-                <ProgressValueText fontSize="2xs" color="gray.400" />
-              </HStack>
-              <ProgressBar borderRadius="full" />
-            </ProgressRoot>
-          </Box>
+          {/* Progress Bar - Placeholder */}
+          <Box w="full" h="2" bg="gray.700" borderRadius="full" />
 
           {/* Stage Steps */}
           <HStack w="full" gap="1">
@@ -840,7 +821,7 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
                       <Text fontSize="sm" fontWeight="700" color="white">
                         {currentStage === "outline" && "جارٍ إنشاء المخطط..."}
                         {currentStage === "beats" && "جارٍ إنشاء Scene Beats..."}
-                        {currentStage === "writing" && "جارٍ كتابة الفصل..."}
+                        {currentStage === "writing" && "جارٍ كتاب�� الفصل..."}
                         {currentStage === "complete" && "تم إنجاز الفصل بنجاح!"}
                       </Text>
                       <Text fontSize="2xs" color="gray.500">
