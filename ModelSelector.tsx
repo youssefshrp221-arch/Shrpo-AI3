@@ -30,7 +30,23 @@ const PROVIDER_CONFIG: Record<string, { icon: any; color: string; bgColor: strin
   Microsoft: { icon: LuZap, color: "purple.400", bgColor: "rgba(168, 85, 247, 0.1)" },
   Mistral: { icon: LuSparkles, color: "yellow.400", bgColor: "rgba(234, 179, 8, 0.1)" },
   DeepSeek: { icon: LuBrain, color: "green.400", bgColor: "rgba(34, 197, 94, 0.1)" },
+  Qwen: { icon: LuSparkles, color: "teal.400", bgColor: "rgba(20, 184, 166, 0.1)" },
+  MoonshotAI: { icon: LuBrain, color: "indigo.400", bgColor: "rgba(99, 102, 241, 0.1)" },
+  OpenAI: { icon: LuZap, color: "emerald.400", bgColor: "rgba(52, 211, 153, 0.1)" },
+  Minimax: { icon: LuFlame, color: "rose.400", bgColor: "rgba(251, 113, 133, 0.1)" },
+  ByteDance: { icon: LuBrain, color: "pink.400", bgColor: "rgba(232, 121, 249, 0.1)" },
+  StepFun: { icon: LuZap, color: "sky.400", bgColor: "rgba(56, 189, 248, 0.1)" },
+  Stockmark: { icon: LuSearch, color: "amber.400", bgColor: "rgba(251, 191, 36, 0.1)" },
+  AbacusAI: { icon: LuSparkles, color: "violet.400", bgColor: "rgba(167, 139, 250, 0.1)" },
+  Sarvam: { icon: LuBrain, color: "lime.400", bgColor: "rgba(163, 230, 53, 0.1)" },
+  ZAI: { icon: LuFlame, color: "fuchsia.400", bgColor: "rgba(232, 121, 249, 0.1)" },
 }
+
+const ALL_PROVIDERS = [
+  "Meta", "NVIDIA", "Mistral", "Qwen", "DeepSeek", "MoonshotAI",
+  "OpenAI", "Google", "Microsoft", "Minimax", "ByteDance", "StepFun",
+  "Stockmark", "AbacusAI", "Sarvam", "ZAI",
+]
 
 // Badge colors based on type
 const TYPE_BADGE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -43,6 +59,14 @@ const TYPE_BADGE_COLORS: Record<string, { bg: string; color: string }> = {
   creative: { bg: "rgba(236, 72, 153, 0.15)", color: "pink.300" },
   precision: { bg: "rgba(14, 165, 233, 0.15)", color: "sky.300" },
   thinking: { bg: "rgba(249, 115, 22, 0.15)", color: "orange.300" },
+  vision: { bg: "rgba(20, 184, 166, 0.15)", color: "teal.300" },
+  coding: { bg: "rgba(52, 211, 153, 0.15)", color: "emerald.300" },
+  new: { bg: "rgba(251, 191, 36, 0.15)", color: "amber.300" },
+  powerful: { bg: "rgba(239, 68, 68, 0.15)", color: "red.300" },
+  multimodal: { bg: "rgba(20, 184, 166, 0.15)", color: "teal.300" },
+  efficient: { bg: "rgba(34, 197, 94, 0.15)", color: "green.300" },
+  balanced: { bg: "rgba(6, 182, 212, 0.15)", color: "cyan.300" },
+  reliable: { bg: "rgba(99, 102, 241, 0.15)", color: "indigo.300" },
 }
 
 interface ModelSelectorProps {
@@ -299,7 +323,7 @@ export default function ModelSelector({ mobile = false }: ModelSelectorProps) {
             </Box>
 
             {/* Model Groups by Provider */}
-            {["Meta", "NVIDIA", "Google", "Microsoft", "Mistral", "DeepSeek"].map((provider) => {
+            {ALL_PROVIDERS.map((provider) => {
               const providerModels = filteredModels.filter((m) => m.provider === provider)
               if (providerModels.length === 0) return null
 
