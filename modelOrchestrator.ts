@@ -31,8 +31,10 @@ export async function streamChatWithFallback(
       throw new DOMException("Aborted", "AbortError")
     }
 
+    console.log(`[v0] Trying model: ${modelId}`)
     try {
       const result = await streamChatOnce(messages, modelId, options)
+      console.log(`[v0] Model ${modelId} succeeded`)
       return {
         fullContent: result,
         modelUsed: modelId,
@@ -46,7 +48,7 @@ export async function streamChatWithFallback(
         throw error
       }
 
-      console.warn(`Model ${modelId} failed:`, (error as Error).message, "— trying fallback...")
+      console.warn(`[v0] Model ${modelId} failed:`, (error as Error).message, "— trying fallback...")
       fallbackCount++
       continue
     }
