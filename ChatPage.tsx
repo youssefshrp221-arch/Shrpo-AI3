@@ -56,7 +56,6 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
     updateLocalMessage,
     setLocalMessages,
     updateLocalChat,
-    apiKey,
   } = useAppStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -219,14 +218,13 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
           },
           signal: controller.signal,
           temperature: settings.temperature,
-          apiKey: apiKey!,
         }
       )
 
       if (result.fallbackCount > 0) {
         const model = result.modelUsed.split("/").pop() || result.modelUsed
         toaster.create({
-          title: `تم التبديل إلى ${model}`,
+          title: `تم التبدي�� إلى ${model}`,
           description: "النموذج الأساسي غير متاح، تم استخدام بديل",
           type: "info",
         })

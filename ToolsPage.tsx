@@ -98,7 +98,7 @@ const TOOLS: Tool[] = [
 ]
 
 export default function ToolsPage() {
-  const { selectedModel, settings, apiKey } = useAppStore()
+  const { selectedModel, settings } = useAppStore()
   const [activeTool, setActiveTool] = useState<Tool | null>(null)
   const [input, setInput] = useState("")
   const [extra, setExtra] = useState("")
@@ -107,7 +107,7 @@ export default function ToolsPage() {
   const [copied, setCopied] = useState(false)
 
   const runTool = async () => {
-    if (!input.trim() || !apiKey) return
+    if (!input.trim()) return
     setLoading(true)
     setOutput("")
     try {
@@ -115,8 +115,7 @@ export default function ToolsPage() {
       const result = await chatOnce(
         [{ role: "user", content: prompt }],
         selectedModel,
-        settings.temperature,
-        apiKey
+        settings.temperature
       )
       setOutput(result)
     } catch (err: any) {
@@ -127,9 +126,26 @@ export default function ToolsPage() {
   }
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(output)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(output)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = output
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        console.error("[v0] Failed to copy: clipboard not available")
+      }
+    }
   }
 
   if (activeTool) {

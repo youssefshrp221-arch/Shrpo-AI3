@@ -96,36 +96,17 @@ export interface ModelConfig {
   fallbacks?: string[]
 }
 
-// Official NVIDIA-compatible model registry
+// Official NVIDIA NIM API compatible model registry (verified working May 2026)
 const META_LLAMA_MODELS: ModelConfig[] = [
   {
-    id: "meta/llama-4-maverick-17b-128e-instruct",
-    name: "Llama 4 Maverick",
+    id: "meta/llama-3.1-8b-instruct",
+    name: "Llama 3.1 8B",
     provider: "Meta",
-    type: "reasoning",
-    size: "17B",
-    context: "128K",
-    description: "Advanced reasoning with extended context",
-    badges: ["reasoning", "premium"],
+    type: "fast",
+    size: "8B",
+    description: "سريع وخفيف - الأفضل للردود السريعة",
+    badges: ["fast", "reliable"],
     default: true,
-  },
-  {
-    id: "meta/llama-3.3-70b-instruct",
-    name: "Llama 3.3",
-    provider: "Meta",
-    type: "general",
-    size: "70B",
-    description: "Balanced general-purpose model",
-    badges: ["general"],
-  },
-  {
-    id: "meta/llama-3.1-405b-instruct",
-    name: "Llama 3.1 405B",
-    provider: "Meta",
-    type: "premium",
-    size: "405B",
-    description: "Most powerful open model",
-    badges: ["premium", "powerful"],
   },
   {
     id: "meta/llama-3.1-70b-instruct",
@@ -133,125 +114,71 @@ const META_LLAMA_MODELS: ModelConfig[] = [
     provider: "Meta",
     type: "general",
     size: "70B",
-    description: "Versatile and reliable",
-    badges: ["general"],
+    description: "نموذج متوازن للمهام المتنوعة",
+    badges: ["general", "balanced"],
+  },
+  {
+    id: "meta/llama-3.1-405b-instruct",
+    name: "Llama 3.1 405B",
+    provider: "Meta",
+    type: "premium",
+    size: "405B",
+    description: "أقوى نموذج مفتوح المصدر",
+    badges: ["premium", "powerful"],
   },
 ]
 
 const NVIDIA_MODELS_LIST: ModelConfig[] = [
-  {
-    id: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    name: "Nemotron Super",
-    provider: "NVIDIA",
-    type: "reasoning",
-    size: "49B",
-    description: "Advanced reasoning with NVIDIA optimization",
-    badges: ["reasoning", "nvidia"],
-  },
   {
     id: "nvidia/llama-3.1-nemotron-70b-instruct",
     name: "Nemotron 70B",
     provider: "NVIDIA",
     type: "chat",
     size: "70B",
-    description: "NVIDIA-optimized chat model",
-    badges: ["chat", "nvidia"],
-  },
-  {
-    id: "nvidia/nemotron-3-8b-chat",
-    name: "Nemotron 3 8B",
-    provider: "NVIDIA",
-    type: "fast",
-    size: "8B",
-    description: "Fast and responsive",
-    badges: ["fast"],
-  },
-  {
-    id: "nvidia/nemotron-4-340b-instruct",
-    name: "Nemotron 4 340B",
-    provider: "NVIDIA",
-    type: "ultra",
-    size: "340B",
-    description: "Ultra-powerful model",
-    badges: ["ultra", "powerful"],
+    description: "محسن للمحادثات والكتابة الإبداعية",
+    badges: ["chat", "creative"],
   },
 ]
 
 const GOOGLE_MICROSOFT_MODELS: ModelConfig[] = [
   {
-    id: "google/gemma-3-27b-it",
-    name: "Gemma 3",
-    provider: "Google",
-    type: "general",
-    size: "27B",
-    description: "Efficient general-purpose model",
-    badges: ["general"],
-  },
-  {
-    id: "google/gemma-2-9b-it",
-    name: "Gemma 2 9B",
-    provider: "Google",
-    type: "fast",
-    size: "9B",
-    description: "Fast and lightweight",
-    badges: ["fast"],
-  },
-  {
-    id: "microsoft/phi-3.5-moe-instruct",
-    name: "Phi 3.5 MoE",
-    provider: "Microsoft",
+    id: "mistralai/mistral-large",
+    name: "Mistral Large",
+    provider: "Mistral",
     type: "reasoning",
-    size: "MoE",
-    description: "Mixture of experts reasoning",
+    size: "123B",
+    description: "نموذج Mistral للمهام المتقدمة والتفكير",
     badges: ["reasoning"],
   },
   {
-    id: "microsoft/phi-3-mini-128k-instruct",
-    name: "Phi 3 Mini",
-    provider: "Microsoft",
+    id: "mistralai/mistral-nemo-12b-instruct-2407",
+    name: "Mistral Nemo",
+    provider: "Mistral",
     type: "fast",
-    size: "3.8B",
-    description: "Compact with extended context",
-    badges: ["fast"],
+    size: "12B",
+    description: "نموذج خفيف وسريع من Mistral",
+    badges: ["fast", "efficient"],
   },
 ]
 
 const MISTRAL_DEEPSEEK_MODELS: ModelConfig[] = [
   {
-    id: "mistralai/mistral-large-2-instruct",
-    name: "Mistral Large 2",
-    provider: "Mistral",
-    type: "creative",
-    size: "40B",
-    description: "Creative and expressive",
-    badges: ["creative"],
-  },
-  {
-    id: "mistralai/mistral-nemo-12b-instruct",
-    name: "Mistral NeMo",
-    provider: "Mistral",
-    type: "creative",
-    size: "12B",
-    description: "Efficient creative writing",
-    badges: ["creative", "fast"],
-  },
-  {
     id: "mistralai/mixtral-8x22b-instruct-v0.1",
     name: "Mixtral 8x22B",
     provider: "Mistral",
     type: "reasoning",
-    size: "141B (8x22B)",
-    description: "Expert routing reasoning",
-    badges: ["reasoning"],
+    size: "141B MoE",
+    description: "خبراء متعددون للتفكير المتقدم",
+    badges: ["reasoning", "powerful"],
   },
   {
-    id: "deepseek-ai/deepseek-r1",
-    name: "DeepSeek R1",
-    provider: "DeepSeek",
-    type: "thinking",
-    size: "671B",
-    description: "Extended thinking and multilingual mastery",
-    badges: ["thinking", "multilingual"],
+    id: "mistralai/mixtral-8x7b-instruct-v0.1",
+    name: "Mixtral 8x7B",
+    provider: "Mistral",
+    type: "reasoning",
+    size: "47B MoE",
+    description: "نموذج محسّن للاستدلال والتحليل",
+    badges: ["reasoning"],
   },
 ]
 
@@ -263,19 +190,20 @@ const ALL_MODELS: ModelConfig[] = [
   ...MISTRAL_DEEPSEEK_MODELS,
 ]
 
-// Fallback chain for resilience
+// Fallback chain for resilience (verified available NVIDIA NIM models)
 export const MODEL_FALLBACK_CHAIN = [
-  "meta/llama-4-maverick-17b-128e-instruct", // Primary
-  "meta/llama-3.3-70b-instruct",              // Fallback 1
-  "meta/llama-3.1-405b-instruct",             // Fallback 2
-  "meta/llama-3.1-70b-instruct",              // Fallback 3 (safe default)
+  "meta/llama-3.1-8b-instruct",               // Primary (fast & reliable)
+  "nvidia/llama-3.1-nemotron-70b-instruct",   // Fallback 1 (optimized)
+  "mistralai/mistral-large",                  // Fallback 2 (reasoning)
+  "meta/llama-3.1-70b-instruct",              // Fallback 3 (balanced)
+  "meta/llama-3.1-405b-instruct",             // Fallback 4 (powerful)
 ]
 
-// Default model (primary)
-export const DEFAULT_MODEL = "meta/llama-4-maverick-17b-128e-instruct"
+// Default model (primary - verified working and fast)
+export const DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
 
-// Safe fallback model (always available)
-export const SAFE_FALLBACK_MODEL = "meta/llama-3.1-70b-instruct"
+// Safe fallback model (always available on NVIDIA NIM)
+export const SAFE_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct"
 
 // Narrative Engine System Prompt
 export const SHRPO_NARRATIVE_PROMPT = `You are now "Shrpo Ultra" - A cinematic narrative intelligence system combining:

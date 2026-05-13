@@ -71,9 +71,28 @@ export default function MessageBubble({
   const textAlign = dir === "rtl" ? "right" : "left"
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      // Try modern Clipboard API first
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      // Fallback: use textarea method for browsers with clipboard restrictions
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = message.content
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        console.error("[v0] Failed to copy: clipboard not available")
+      }
+    }
   }
 
   const handleSaveEdit = () => {
@@ -336,9 +355,26 @@ export default function MessageBubble({
 function CopyCodeButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = code
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        console.error("[v0] Failed to copy: clipboard not available")
+      }
+    }
   }
   return (
     <Box as="button" display="flex" alignItems="center" gap="1" px="2" py="0.5" borderRadius="md" fontSize="2xs" color="gray.500" _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }} onClick={handleCopy} transition="all 0.15s">

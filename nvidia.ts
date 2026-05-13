@@ -50,7 +50,8 @@ export async function extractTextFromFile(file: File): Promise<string> {
 }
 
 /**
- * Stream chat — calls NVIDIA NIM API directly from the browser
+ * Stream chat through secure backend proxy
+ * The API key is protected on the server side - not exposed to clients
  */
 export async function streamChat(
   messages: ChatMessage[],
@@ -60,13 +61,10 @@ export async function streamChat(
   signal?: AbortSignal,
   apiKey?: string
 ): Promise<void> {
-  if (!apiKey) throw new Error("NVIDIA API key is required")
-
-  const response = await fetch(NVIDIA_BASE_URL, {
+  const response = await fetch("/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model,
@@ -96,7 +94,6 @@ export async function streamChat(
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 
-    // Process complete lines only
     const lines = buffer.split("\n")
     buffer = lines.pop() ?? ""
 
@@ -117,7 +114,6 @@ export async function streamChat(
     }
   }
 
-  // Flush remaining buffer
   if (buffer.trim() && buffer.trim() !== "data: [DONE]" && buffer.trim().startsWith("data: ")) {
     try {
       const json = JSON.parse(buffer.trim().slice(6))
@@ -128,7 +124,8 @@ export async function streamChat(
 }
 
 /**
- * Non-streaming chat — calls NVIDIA NIM API directly
+ * Non-streaming chat through secure backend proxy
+ * The API key is protected on the server side - not exposed to clients
  */
 export async function chatOnce(
   messages: ChatMessage[],
@@ -136,13 +133,10 @@ export async function chatOnce(
   temperature: number,
   apiKey?: string
 ): Promise<string> {
-  if (!apiKey) throw new Error("NVIDIA API key is required")
-
-  const response = await fetch(NVIDIA_BASE_URL, {
+  const response = await fetch("/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model,

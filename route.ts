@@ -2,30 +2,47 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, model = 'meta/llama-3.1-405b-instruct', temperature = 0.7 } = await req.json()
+    const { messages, model = 'meta/llama-3.1-8b-instruct', temperature = 0.7, stream = true } = await req.json()
 
+    // Get API key from server environment - never from client
     const apiKey = process.env.NVIDIA_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'NVIDIA API key not configured' },
+        { error: 'Server not configured - NVIDIA API key missing' },
         { status: 500 }
       )
     }
 
-    // Allowed models only
+    // Allowed models - security: only allow specified models
     const allowedModels = [
-      'meta/llama-3.1-405b-instruct',
+      'meta/llama-3.1-8b-instruct',
       'meta/llama-3.1-70b-instruct',
-      'deepseek-ai/deepseek-v3',
+      'meta/llama-3.1-405b-instruct',
       'nvidia/llama-3.1-nemotron-70b-instruct',
+      'nvidia/nemotron-4-340b-instruct',
+      'mistralai/mistral-large',
+      'mistralai/mistral-nemo-12b-instruct-2407',
+      'mistralai/mixtral-8x22b-instruct-v0.1',
+      'mistralai/mixtral-8x7b-instruct-v0.1',
     ]
 
     if (!allowedModels.includes(model)) {
       return NextResponse.json(
-        { error: 'Invalid model selection' },
+        { error: `Invalid model. Allowed: ${allowedModels.join(', ')}` },
         { status: 400 }
       )
     }
+
+    // Validate messages
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json(
+        { error: 'Messages array is required and must not be empty' },
+        { status: 400 }
+      )
+    }
+
+    // Validate temperature
+    const validTemp = Math.min(Math.max(temperature, 0), 1)
 
     const systemPrompt = {
       role: 'system',
@@ -52,33 +69,39 @@ IMPORTANT - LaTeX Math Formatting:
       body: JSON.stringify({
         model,
         messages: [systemPrompt, ...messages],
-        temperature: Math.min(Math.max(temperature, 0), 1),
+        temperature: validTemp,
         max_tokens: 4096,
-        stream: true,
+        stream: stream,
       }),
     })
 
     if (!response.ok) {
       const error = await response.text()
-      console.error('NVIDIA API error:', error)
+      console.error('[Shrpo] NVIDIA API error:', error)
       return NextResponse.json(
         { error: 'Failed to generate response from NVIDIA API' },
         { status: response.status }
       )
     }
 
-    // Stream the response
-    return new NextResponse(response.body, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    })
+    // Handle streaming responses
+    if (stream && response.body) {
+      return new NextResponse(response.body, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      })
+    }
+
+    // Handle non-streaming responses
+    const data = await response.json()
+    return NextResponse.json(data)
 
   } catch (error) {
-    console.error('API error:', error)
+    console.error('[Shrpo] API error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
