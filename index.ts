@@ -142,44 +142,34 @@ const NVIDIA_MODELS_LIST: ModelConfig[] = [
 
 const GOOGLE_MICROSOFT_MODELS: ModelConfig[] = [
   {
-    id: "google/gemma-2-27b-it",
-    name: "Gemma 2 27B",
-    provider: "Google",
-    type: "general",
-    size: "27B",
-    description: "نموذج Google الفعال والموثوق",
-    badges: ["general", "efficient"],
-  },
-  {
-    id: "google/gemma-2-9b-it",
-    name: "Gemma 2 9B",
-    provider: "Google",
-    type: "fast",
-    size: "9B",
-    description: "سريع وخفيف من Google",
-    badges: ["fast"],
-  },
-  {
-    id: "microsoft/phi-3-medium-128k-instruct",
-    name: "Phi 3 Medium",
-    provider: "Microsoft",
+    id: "mistralai/mistral-large",
+    name: "Mistral Large",
+    provider: "Mistral",
     type: "reasoning",
-    size: "14B",
-    context: "128K",
-    description: "تفكير متقدم مع سياق طويل",
-    badges: ["reasoning", "long-context"],
+    size: "123B",
+    description: "نموذج Mistral للمهام المتقدمة والتفكير",
+    badges: ["reasoning"],
+  },
+  {
+    id: "mistralai/mistral-nemo-12b-instruct-2407",
+    name: "Mistral Nemo",
+    provider: "Mistral",
+    type: "fast",
+    size: "12B",
+    description: "نموذج خفيف وسريع من Mistral",
+    badges: ["fast", "efficient"],
   },
 ]
 
 const MISTRAL_DEEPSEEK_MODELS: ModelConfig[] = [
   {
-    id: "mistralai/mistral-7b-instruct-v0.3",
-    name: "Mistral 7B",
+    id: "mistralai/mixtral-8x22b-instruct-v0.1",
+    name: "Mixtral 8x22B",
     provider: "Mistral",
-    type: "fast",
-    size: "7B",
-    description: "سريع وفعال للمهام البسيطة",
-    badges: ["fast"],
+    type: "reasoning",
+    size: "141B MoE",
+    description: "خبراء متعددون للتفكير المتقدم",
+    badges: ["reasoning", "powerful"],
   },
   {
     id: "mistralai/mixtral-8x7b-instruct-v0.1",
@@ -187,17 +177,8 @@ const MISTRAL_DEEPSEEK_MODELS: ModelConfig[] = [
     provider: "Mistral",
     type: "reasoning",
     size: "47B MoE",
-    description: "خبراء متعددون للتفكير المتقدم",
-    badges: ["reasoning", "moe"],
-  },
-  {
-    id: "deepseek-ai/deepseek-coder-6.7b-instruct",
-    name: "DeepSeek Coder",
-    provider: "DeepSeek",
-    type: "precision",
-    size: "6.7B",
-    description: "متخصص في البرمجة والكود",
-    badges: ["coding"],
+    description: "نموذج محسّن للاستدلال والتحليل",
+    badges: ["reasoning"],
   },
 ]
 
@@ -209,12 +190,13 @@ const ALL_MODELS: ModelConfig[] = [
   ...MISTRAL_DEEPSEEK_MODELS,
 ]
 
-// Fallback chain for resilience (verified working NVIDIA NIM models)
+// Fallback chain for resilience (verified available NVIDIA NIM models)
 export const MODEL_FALLBACK_CHAIN = [
   "meta/llama-3.1-8b-instruct",               // Primary (fast & reliable)
-  "google/gemma-2-9b-it",                     // Fallback 1 (lightweight)
-  "mistralai/mistral-7b-instruct-v0.3",       // Fallback 2 (efficient)
-  "meta/llama-3.1-70b-instruct",              // Fallback 3 (powerful)
+  "nvidia/llama-3.1-nemotron-70b-instruct",   // Fallback 1 (optimized)
+  "mistralai/mistral-large",                  // Fallback 2 (reasoning)
+  "meta/llama-3.1-70b-instruct",              // Fallback 3 (balanced)
+  "meta/llama-3.1-405b-instruct",             // Fallback 4 (powerful)
 ]
 
 // Default model (primary - verified working and fast)

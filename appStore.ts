@@ -12,8 +12,8 @@ interface AppStore {
   // Active state
   activeChatId: string | null
   setActiveChatId: (id: string | null) => void
-  activeView: "chat" | "writing" | "novel" | "tools" | "tester" | "settings"
-  setActiveView: (view: "chat" | "writing" | "novel" | "tools" | "tester" | "settings") => void
+  activeView: "chat" | "writing" | "novel" | "tools" | "settings"
+  setActiveView: (view: "chat" | "writing" | "novel" | "tools" | "settings") => void
   activeWritingProjectId: string | null
   setActiveWritingProjectId: (id: string | null) => void
 

@@ -6,7 +6,6 @@ import WritingStudio from "@/pages/WritingStudio"
 import NovelStudio from "@/pages/NovelStudio"
 import ToolsPage from "@/pages/ToolsPage"
 import SettingsPage from "@/pages/SettingsPage"
-import ModelTester from "@/components/ModelTester"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId, initializeSessionId } from "@/lib/supabase"
 import { v4 as uuidv4 } from "uuid"
@@ -75,7 +74,6 @@ export default function MainLayout() {
         {activeView === "writing" && <WritingStudio />}
         {activeView === "novel" && <NovelStudio />}
         {activeView === "tools" && <ToolsPage />}
-        {activeView === "tester" && <ModelTester />}
         {activeView === "settings" && <SettingsPage />}
       </Box>
     </Flex>
