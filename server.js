@@ -186,7 +186,7 @@ app.post("/api/dev/vision", requireAdmin, async (req, res) => {
   const apiKey = process.env.NVIDIA_API_KEY
   if (!apiKey) return res.status(500).json({ error: "Server not configured — NVIDIA API key missing" })
 
-  const { imageBase64 } = req.body
+  const { imageBase64, userPrompt } = req.body
   if (!imageBase64 || typeof imageBase64 !== "string") {
     return res.status(400).json({ error: "imageBase64 required" })
   }
@@ -218,7 +218,12 @@ Rules:
           {
             role: "user",
             content: [
-              { type: "text", text: "Extract all NVIDIA model IDs visible in this screenshot. Return only the JSON." },
+              {
+                type: "text",
+                text: userPrompt && typeof userPrompt === "string" && userPrompt.trim()
+                  ? userPrompt.trim()
+                  : "Extract all NVIDIA model IDs visible in this screenshot. Return only the JSON object."
+              },
               { type: "image_url", image_url: { url: imageBase64 } },
             ],
           },
