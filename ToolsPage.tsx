@@ -126,9 +126,26 @@ export default function ToolsPage() {
   }
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(output)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(output)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = output
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        console.error("[v0] Failed to copy: clipboard not available")
+      }
+    }
   }
 
   if (activeTool) {

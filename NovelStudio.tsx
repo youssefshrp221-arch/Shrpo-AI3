@@ -359,9 +359,26 @@ ${novelSettings.writingStyle ? `- أسلوب الكتابة: ${novelSettings.wri
 
   const copyToClipboard = () => {
     const text = generatedChapter || streamingText
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = text
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        console.error("[v0] Failed to copy: clipboard not available")
+      }
+    }
   }
 
   const handleExport = () => {
