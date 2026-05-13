@@ -224,8 +224,20 @@ export default function DevStudio() {
 
     const current = data.content as string
     const additions = modelIds
-      .filter((id) => !current.includes(`id: \"${id}\"`))
-      .map((id) => `  {\n    id: \"${id}\",\n    name: \"${id.split(\"/\").pop() || id}\",\n    provider: \"NVIDIA\",\n    type: \"general\",\n    size: \"-\",\n    description: \"Auto-discovered from image context\",\n    badges: [\"new\"],\n  },\n`)
+      .filter((id) => !current.includes(`id: "${id}"`))
+      .map((id) => {
+        const modelName = id.split("/").pop() || id
+        return `  {
+    id: "${id}",
+    name: "${modelName}",
+    provider: "NVIDIA",
+    type: "general",
+    size: "-",
+    description: "Auto-discovered from image context",
+    badges: ["new"],
+  },
+`
+      })
 
     if (!additions.length) return
 
