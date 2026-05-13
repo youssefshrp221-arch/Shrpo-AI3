@@ -245,22 +245,13 @@ const MISTRAL_DEEPSEEK_MODELS: ModelConfig[] = [
     badges: ["reasoning"],
   },
   {
-    id: "deepseek-ai/deepseek-v3",
-    name: "DeepSeek V3",
-    provider: "DeepSeek",
-    type: "precision",
-    size: "685B",
-    description: "Multilingual precision and Arabic mastery",
-    badges: ["precision", "multilingual"],
-  },
-  {
     id: "deepseek-ai/deepseek-r1",
     name: "DeepSeek R1",
     provider: "DeepSeek",
     type: "thinking",
     size: "671B",
-    description: "Extended thinking for complex problems",
-    badges: ["thinking"],
+    description: "Extended thinking and multilingual mastery",
+    badges: ["thinking", "multilingual"],
   },
 ]
 

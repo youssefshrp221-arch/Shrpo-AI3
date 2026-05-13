@@ -50,7 +50,7 @@ const STAGE_CONFIG: Record<string, { title: string; subtitle: string; model: str
   stage2: {
     title: "الكتابة الإبداعية",
     subtitle: "تحويل الخطة إلى فصول روائية أدبية",
-    model: "deepseek-ai/deepseek-v3",
+    model: "mistralai/mistral-large-2-instruct",
     icon: LuPencilLine,
     color: "purple",
   },
@@ -122,7 +122,7 @@ export default function NovelStudio() {
       // Stage 2
       const result2 = await streamChatWithFallback(
         [{ role: "user", content: buildStage2Prompt(idea, result.fullContent) }],
-        "deepseek-ai/deepseek-v3",
+        "mistralai/mistral-large-2-instruct",
         {
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
