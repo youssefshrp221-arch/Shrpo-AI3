@@ -27,6 +27,7 @@ import {
   LuChevronDown,
   LuMenu,
   LuX,
+  LuFlaskConical,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId } from "@/lib/supabase"
@@ -43,6 +44,7 @@ const navItems = [
   { icon: LuBookOpen, label: "Writing Studio", view: "writing" as const },
   { icon: LuSquarePen, label: "Novel Studio", view: "novel" as const },
   { icon: LuWrench, label: "AI Tools", view: "tools" as const },
+  { icon: LuFlaskConical, label: "Model Tester", view: "tester" as const },
   { icon: LuSettings, label: "Settings", view: "settings" as const },
 ]
 
