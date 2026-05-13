@@ -1,34 +1,13 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import Editor from "@monaco-editor/react"
 import {
-  Box,
-  HStack,
-  VStack,
-  Text,
-  Button,
-  Flex,
-  Badge,
-  Textarea,
-  Icon,
-  Spinner,
-  Separator,
+  Box, HStack, VStack, Text, Button, Flex, Badge,
+  Textarea, Icon, Spinner, Separator,
 } from "@chakra-ui/react"
 import {
-  LuTerminal,
-  LuSave,
-  LuRefreshCw,
-  LuSend,
-  LuCheck,
-  LuX,
-  LuSparkles,
-  LuCode,
-  LuFolder,
-  LuUpload,
-  LuScanLine,
-  LuCircleAlert,
-  LuShieldCheck,
-  LuEye,
-  LuFileDiff,
+  LuTerminal, LuSave, LuRefreshCw, LuSend, LuCheck,
+  LuX, LuCode, LuFolder, LuUpload, LuShieldCheck,
+  LuBot, LuUser, LuFileDiff, LuFileCode, LuTrash2,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { toaster } from "@/components/ui/toaster"
@@ -36,44 +15,52 @@ import { toaster } from "@/components/ui/toaster"
 // ── Constants ──────────────────────────────────────────────────────────────────
 const CODER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
 const VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
-const MODEL_CONFIG_PATH = "index.ts"
 
-// Patterns that MUST exist in any file touching auth. Saving is blocked if they disappear.
-const AUTH_GUARD_PATTERNS = [
-  "isAdmin",
-  "rehydrateAdmin",
-  "isAdminEmail",
-  "userEmail",
-]
+// Auth files that need extra protection
 const AUTH_FILES = ["appStore.ts", "App.tsx", "MainLayout.tsx"]
+const AUTH_PATTERNS = ["isAdmin", "rehydrateAdmin", "isAdminEmail", "ADMIN_EMAIL"]
 
-type PanelId = "vision" | "explorer" | "editor"
+// ── Types ──────────────────────────────────────────────────────────────────────
+interface ChatMsg {
+  id: string
+  role: "user" | "assistant" | "system"
+  content: string
+  imagePreview?: string
+  code?: string
+  codeFile?: string
+  applied?: boolean
+  ts: number
+}
 
-// ── Image helpers ──────────────────────────────────────────────────────────────
-async function compressImage(
-  file: File,
-  maxWidth = 1200,
-  quality = 0.82,
-  onProgress?: (pct: number) => void,
-): Promise<string> {
+interface PendingImage {
+  base64: string
+  preview: string
+  name: string
+  originalSize: number
+  compressedSize: number
+}
+
+interface SessionCtx {
+  extractedModels: string[]
+  lastImageAnalysis: string
+  lastImageBase64: string | null
+  lastImageName: string | null
+}
+
+// ── Image compression ──────────────────────────────────────────────────────────
+async function compressImage(file: File, maxWidth = 1000, quality = 0.80): Promise<string> {
   return new Promise((resolve, reject) => {
-    onProgress?.(10)
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error("Failed to read file"))
+    reader.onerror = () => reject(new Error("Read failed"))
     reader.onload = (e) => {
-      onProgress?.(40)
       const img = new Image()
-      img.onerror = () => reject(new Error("Failed to decode image"))
+      img.onerror = () => reject(new Error("Decode failed"))
       img.onload = () => {
-        onProgress?.(70)
         const scale = Math.min(1, maxWidth / img.width)
-        const w = Math.round(img.width * scale)
-        const h = Math.round(img.height * scale)
         const canvas = document.createElement("canvas")
-        canvas.width = w
-        canvas.height = h
-        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h)
-        onProgress?.(95)
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height)
         resolve(canvas.toDataURL("image/jpeg", quality))
       }
       img.src = e.target!.result as string
@@ -83,39 +70,59 @@ async function compressImage(
 }
 
 function fmtBytes(b: number) {
-  if (b < 1024) return `${b} B`
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
-  return `${(b / (1024 * 1024)).toFixed(2)} MB`
+  if (b < 1024) return `${b}B`
+  if (b < 1048576) return `${(b / 1024).toFixed(0)}KB`
+  return `${(b / 1048576).toFixed(1)}MB`
 }
 
-// ── Simple diff helper ─────────────────────────────────────────────────────────
+function uid() { return Math.random().toString(36).slice(2) }
+
+// ── Code extraction ────────────────────────────────────────────────────────────
+function extractCode(text: string): { code: string; lang: string } | null {
+  const m = text.match(/```([a-zA-Z0-9]*)\n?([\s\S]*?)```/)
+  if (m && m[2].trim().length > 30) return { code: m[2].trim(), lang: m[1] || "text" }
+  return null
+}
+
+// ── Diff helper ────────────────────────────────────────────────────────────────
 interface DiffLine { type: "add" | "remove" | "same"; text: string }
-function computeDiff(before: string, after: string): DiffLine[] {
-  const a = before.split("\n")
-  const b = after.split("\n")
-  const result: DiffLine[] = []
-  const maxLen = Math.max(a.length, b.length)
-  for (let i = 0; i < maxLen; i++) {
-    if (i >= a.length) result.push({ type: "add", text: b[i] })
-    else if (i >= b.length) result.push({ type: "remove", text: a[i] })
-    else if (a[i] !== b[i]) {
-      result.push({ type: "remove", text: a[i] })
-      result.push({ type: "add", text: b[i] })
-    } else {
-      result.push({ type: "same", text: a[i] })
-    }
+function computeDiff(a: string, b: string): DiffLine[] {
+  const la = a.split("\n"), lb = b.split("\n")
+  const out: DiffLine[] = []
+  const max = Math.max(la.length, lb.length)
+  for (let i = 0; i < max; i++) {
+    if (i >= la.length) out.push({ type: "add", text: lb[i] })
+    else if (i >= lb.length) out.push({ type: "remove", text: la[i] })
+    else if (la[i] !== lb[i]) { out.push({ type: "remove", text: la[i] }); out.push({ type: "add", text: lb[i] }) }
+    else out.push({ type: "same", text: la[i] })
   }
-  return result
+  return out
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
 export default function DevStudio() {
   const userEmail = useAppStore((s) => s.userEmail)
   const isAdmin = useAppStore((s) => s.isAdmin)
 
-  const [activePanel, setActivePanel] = useState<PanelId>("vision")
+  // Chat state
+  const [messages, setMessages] = useState<ChatMsg[]>([
+    {
+      id: uid(), role: "system", ts: Date.now(),
+      content: `مرحبًا! أنا Shrpo Dev AI.\n\nأستطيع:\n• تعديل ملفات المشروع بناءً على طلبك\n• تحليل الصور واستخراج معلومات منها\n• قراءة أي ملف من القائمة وتعديله\n\nاختر ملفًا من القائمة يمين ثم اكتب طلبك.`,
+    },
+  ])
+  const [inputText, setInputText] = useState("")
+  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [compressing, setCompressing] = useState(false)
+  const [sessionCtx, setSessionCtx] = useState<SessionCtx>({
+    extractedModels: [],
+    lastImageAnalysis: "",
+    lastImageBase64: null,
+    lastImageName: null,
+  })
 
-  // File state
+  // Editor state
   const [files, setFiles] = useState<string[]>([])
   const [openFiles, setOpenFiles] = useState<string[]>([])
   const [activeFile, setActiveFile] = useState<string | null>(null)
@@ -123,30 +130,14 @@ export default function DevStudio() {
   const [originalContent, setOriginalContent] = useState("")
   const [isDirty, setIsDirty] = useState(false)
   const [loadingFile, setLoadingFile] = useState(false)
+  const [showDiff, setShowDiff] = useState<{ code: string } | null>(null)
 
-  // AI editor state
-  const [aiPrompt, setAiPrompt] = useState("")
-  const [aiResponse, setAiResponse] = useState("")
-  const [aiLoading, setAiLoading] = useState(false)
-  const [pendingCode, setPendingCode] = useState<string | null>(null)
-  const [showDiff, setShowDiff] = useState(false)
+  // Mobile panel
+  const [mobilePanel, setMobilePanel] = useState<"chat" | "editor">("chat")
 
-  // Vision state
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [imageCompressed, setImageCompressed] = useState<string | null>(null)
-  const [originalSize, setOriginalSize] = useState(0)
-  const [compressedSize, setCompressedSize] = useState(0)
-  const [visionPrompt, setVisionPrompt] = useState("")
-  const [visionLoading, setVisionLoading] = useState(false)
-  const [visionProgress, setVisionProgress] = useState(0)
-  const [visionPhase, setVisionPhase] = useState<"idle" | "compressing" | "ready" | "uploading" | "analysing" | "done">("idle")
-  const [extractedIds, setExtractedIds] = useState<string[]>([])
-  const [newlyAdded, setNewlyAdded] = useState<string[]>([])
-  const [visionError, setVisionError] = useState<string | null>(null)
-  const [visionRawText, setVisionRawText] = useState("")
-
+  const chatEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // ── Admin guard ──────────────────────────────────────────────────────────────
   if (!isAdmin) {
@@ -154,14 +145,17 @@ export default function DevStudio() {
       <Flex h="100%" align="center" justify="center" bg="#0a0a0f" direction="column" gap="4">
         <Icon as={LuShieldCheck} boxSize="48px" color="brand.500" />
         <Text color="gray.400" fontWeight="600" fontSize="lg">Dev Studio — للمطور فقط</Text>
-        <Text color="gray.600" fontSize="sm" textAlign="center" maxW="280px">
-          هذه الصفحة محمية. سجّل دخولك بإيميل المطور من صفحة الإعدادات.
-        </Text>
+        <Text color="gray.600" fontSize="sm">سجّل دخولك بإيميل المطور من الإعدادات</Text>
       </Flex>
     )
   }
 
-  // ── File loading ──────────────────────────────────────────────────────────────
+  // ── Scroll chat to bottom ────────────────────────────────────────────────────
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  // ── Load file list ────────────────────────────────────────────────────────────
   const loadFiles = useCallback(async () => {
     try {
       const res = await fetch("/api/dev/files", { headers: { "x-user-email": userEmail || "" } })
@@ -170,9 +164,9 @@ export default function DevStudio() {
     } catch {}
   }, [userEmail])
 
-  // Initial load
-  useState(() => { loadFiles() })
+  useEffect(() => { loadFiles() }, [loadFiles])
 
+  // ── Open file ────────────────────────────────────────────────────────────────
   const openFile = async (filePath: string) => {
     setLoadingFile(true)
     try {
@@ -185,11 +179,10 @@ export default function DevStudio() {
         setFileContent(data.content)
         setOriginalContent(data.content)
         setIsDirty(false)
-        setAiResponse("")
-        setPendingCode(null)
-        setShowDiff(false)
+        setShowDiff(null)
         if (!openFiles.includes(filePath)) setOpenFiles((p) => [...p, filePath])
-        setActivePanel("editor")
+        setMobilePanel("editor")
+        addSystemMsg(`📂 تم فتح \`${filePath}\` — ${data.content.split("\n").length} سطر`)
       }
     } catch {
       toaster.create({ title: "Error loading file", type: "error" })
@@ -207,45 +200,110 @@ export default function DevStudio() {
     }
   }
 
-  // ── Auth guard for saves ──────────────────────────────────────────────────────
-  const checkAuthSafety = (filePath: string, newContent: string): string | null => {
-    if (!AUTH_FILES.some((af) => filePath.endsWith(af))) return null
-    const missing = AUTH_GUARD_PATTERNS.filter((p) => !newContent.includes(p))
-    if (missing.length > 0) {
-      return `⚠️ الحفظ مرفوض: الكود الجديد يحذف كود الحماية (${missing.join(", ")}). أضف الكود يدويًا أو تراجع.`
-    }
-    return null
+  // ── Helper: add system message ────────────────────────────────────────────────
+  const addSystemMsg = (content: string) => {
+    setMessages((m) => [...m, { id: uid(), role: "system", content, ts: Date.now() }])
   }
 
-  // ── AI code generation ────────────────────────────────────────────────────────
-  const runAI = async () => {
-    if (!aiPrompt.trim() || !activeFile) return
-    setAiLoading(true)
-    setAiResponse("")
-    setPendingCode(null)
-    setShowDiff(false)
+  // ── Image pick & compress ─────────────────────────────────────────────────────
+  const handlePickImage = async (file: File) => {
+    setCompressing(true)
+    try {
+      const base64 = await compressImage(file, 1000, 0.80)
+      const byteLen = Math.round((base64.length * 3) / 4)
+      setPendingImage({
+        base64,
+        preview: URL.createObjectURL(file),
+        name: file.name,
+        originalSize: file.size,
+        compressedSize: byteLen,
+      })
+    } catch (err: any) {
+      toaster.create({ title: "Image error", description: err.message, type: "error" })
+    } finally {
+      setCompressing(false)
+    }
+  }
 
-    const system =
-      `You are Shrpo Dev AI editing: ${activeFile}.\n\nFile:\n\`\`\`${getLanguage(activeFile)}\n${fileContent}\n\`\`\`\n\n` +
-      `IMPORTANT: Never remove isAdmin, rehydrateAdmin, isAdminEmail, or any auth logic.\n` +
-      `Return COMPLETE updated file only. Wrap code in a markdown code block.`
+  // ── Auth safety check ─────────────────────────────────────────────────────────
+  const checkAuth = (filePath: string, code: string): string | null => {
+    if (!AUTH_FILES.some((af) => filePath.endsWith(af))) return null
+    const missing = AUTH_PATTERNS.filter((p) => !code.includes(p))
+    return missing.length > 0 ? `⚠️ الكود يحذف حماية الـ Admin (${missing.join(", ")})` : null
+  }
+
+  // ── Send message ──────────────────────────────────────────────────────────────
+  const sendMessage = async () => {
+    const text = inputText.trim()
+    if (!text && !pendingImage) return
+    if (isStreaming) return
+
+    const hasImage = !!pendingImage
+    const useLastImage = !hasImage && sessionCtx.lastImageBase64 && text.toLowerCase().includes("الصورة")
+
+    // Add user message to chat
+    const userMsg: ChatMsg = {
+      id: uid(),
+      role: "user",
+      content: text || (hasImage ? `[صورة: ${pendingImage!.name}]` : ""),
+      imagePreview: pendingImage?.preview,
+      ts: Date.now(),
+    }
+    setMessages((m) => [...m, userMsg])
+    setInputText("")
+    const imgToSend = hasImage ? pendingImage!.base64 : (useLastImage ? sessionCtx.lastImageBase64 : null)
+    setPendingImage(null)
+    setIsStreaming(true)
+
+    // Build system prompt with file context
+    const sysContent =
+      `You are Shrpo Dev AI — a code editor AI assistant.\n` +
+      (activeFile
+        ? `Active file: ${activeFile}\n\nFile content:\n\`\`\`${getLanguage(activeFile)}\n${fileContent}\n\`\`\`\n\n`
+        : "") +
+      (sessionCtx.lastImageAnalysis
+        ? `Previous image analysis context:\n${sessionCtx.lastImageAnalysis}\n\n`
+        : "") +
+      `Rules:\n` +
+      `- When asked to edit code, return the COMPLETE updated file wrapped in a markdown code block.\n` +
+      `- Never remove isAdmin, rehydrateAdmin, isAdminEmail, ADMIN_EMAIL or any authentication code.\n` +
+      `- Be concise in explanations. Speak Arabic when replying to Arabic questions.`
+
+    // Build messages history (last 8 + new)
+    const historyMsgs = messages
+      .filter((m) => m.role !== "system")
+      .slice(-8)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    const apiMessages = [
+      { role: "system", content: sysContent },
+      ...historyMsgs,
+      { role: "user", content: text },
+    ]
+
+    // Add streaming assistant message placeholder
+    const asstId = uid()
+    setMessages((m) => [...m, { id: asstId, role: "assistant", content: "", ts: Date.now() }])
 
     try {
-      const res = await fetch("/api/dev/generate", {
+      const res = await fetch("/api/dev/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-email": userEmail || "" },
         body: JSON.stringify({
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: aiPrompt },
-          ],
+          messages: apiMessages,
+          imageBase64: imgToSend || undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`) }
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `HTTP ${res.status}`)
+      }
 
       const reader = res.body!.getReader()
       const dec = new TextDecoder()
       let buf = "", full = ""
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -258,41 +316,79 @@ export default function DevStudio() {
             try {
               const j = JSON.parse(t.slice(6))
               const d = j?.choices?.[0]?.delta?.content
-              if (d) { full += d; setAiResponse(full) }
+              if (d) {
+                full += d
+                setMessages((m) =>
+                  m.map((msg) => msg.id === asstId ? { ...msg, content: full } : msg)
+                )
+              }
             } catch {}
           }
         }
       }
-      const m = full.match(/```(?:[a-zA-Z0-9]*)?\n?([\s\S]*?)```/)
-      setPendingCode(m ? m[1].trim() : full.trim())
+
+      // Extract code from response
+      const extracted = extractCode(full)
+      if (extracted) {
+        const targetFile = activeFile || guessFileFromResponse(full)
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === asstId
+              ? { ...msg, content: full, code: extracted.code, codeFile: targetFile || undefined }
+              : msg
+          )
+        )
+      }
+
+      // Update session context if image was analyzed
+      if (imgToSend) {
+        setSessionCtx((ctx) => ({
+          ...ctx,
+          lastImageBase64: hasImage ? imgToSend : ctx.lastImageBase64,
+          lastImageName: hasImage ? pendingImage?.name || ctx.lastImageName : ctx.lastImageName,
+          lastImageAnalysis: full.slice(0, 600),
+        }))
+      }
     } catch (err: any) {
-      toaster.create({ title: "AI Error", description: err.message, type: "error" })
+      setMessages((m) =>
+        m.map((msg) => msg.id === asstId
+          ? { ...msg, content: `❌ خطأ: ${err.message}` }
+          : msg
+        )
+      )
     } finally {
-      setAiLoading(false)
+      setIsStreaming(false)
     }
   }
 
-  const applyChanges = () => {
-    if (!pendingCode || !activeFile) return
-    const authErr = checkAuthSafety(activeFile, pendingCode)
+  // ── Apply code changes ────────────────────────────────────────────────────────
+  const applyCode = async (msgId: string, code: string, file: string | undefined) => {
+    const targetFile = file || activeFile
+    if (!targetFile) {
+      toaster.create({ title: "اختر ملفًا أولاً", type: "error" })
+      return
+    }
+
+    const authErr = checkAuth(targetFile, code)
     if (authErr) {
       toaster.create({ title: "محظور", description: authErr, type: "error" })
       return
     }
-    setFileContent(pendingCode)
+
+    setFileContent(code)
     setIsDirty(true)
-    setPendingCode(null)
-    setShowDiff(false)
-    toaster.create({ title: "تم تطبيق التغييرات", type: "info" })
+    setShowDiff(null)
+    setMessages((m) =>
+      m.map((msg) => msg.id === msgId ? { ...msg, applied: true } : msg)
+    )
+    toaster.create({ title: `✓ تم تطبيق الكود على ${targetFile.split("/").pop()}`, type: "success" })
   }
 
+  // ── Save file ────────────────────────────────────────────────────────────────
   const saveFile = async () => {
     if (!activeFile || !isDirty) return
-    const authErr = checkAuthSafety(activeFile, fileContent)
-    if (authErr) {
-      toaster.create({ title: "محظور", description: authErr, type: "error" })
-      return
-    }
+    const authErr = checkAuth(activeFile, fileContent)
+    if (authErr) { toaster.create({ title: "محظور", description: authErr, type: "error" }); return }
     try {
       const res = await fetch("/api/dev/apply", {
         method: "POST",
@@ -303,136 +399,12 @@ export default function DevStudio() {
       if (data.success) {
         setOriginalContent(fileContent)
         setIsDirty(false)
+        addSystemMsg(`✅ تم حفظ \`${activeFile}\` بنجاح`)
         toaster.create({ title: "تم الحفظ", type: "success" })
-      } else throw new Error(data.error || "Save failed")
+      } else throw new Error(data.error)
     } catch (err: any) {
       toaster.create({ title: "فشل الحفظ", description: err.message, type: "error" })
     }
-  }
-
-  // ── Vision: pick & compress ───────────────────────────────────────────────────
-  const handlePickImage = async (file: File) => {
-    setVisionError(null)
-    setExtractedIds([])
-    setNewlyAdded([])
-    setVisionRawText("")
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
-    setOriginalSize(file.size)
-    setVisionPhase("compressing")
-    setVisionProgress(0)
-    try {
-      const compressed = await compressImage(file, 1200, 0.82, setVisionProgress)
-      setImageCompressed(compressed)
-      const byteLen = Math.round((compressed.length * 3) / 4)
-      setCompressedSize(byteLen)
-      setVisionProgress(100)
-      setVisionPhase("ready")
-    } catch (err: any) {
-      setVisionError(err.message)
-      setVisionPhase("idle")
-    }
-  }
-
-  // ── Vision: send to API ────────────────────────────────────────────────────────
-  const processImage = async () => {
-    if (!imageCompressed) return
-    setVisionLoading(true)
-    setVisionPhase("uploading")
-    setVisionProgress(0)
-    setVisionError(null)
-    setExtractedIds([])
-    setNewlyAdded([])
-
-    const userMsg = visionPrompt.trim() ||
-      "Extract all NVIDIA model IDs visible in this screenshot. Return only JSON: { \"modelIds\": [...] }"
-
-    try {
-      // Simulate upload progress
-      const progInterval = setInterval(() => {
-        setVisionProgress((p) => (p < 60 ? p + 5 : p))
-      }, 300)
-      setVisionPhase("analysing")
-
-      const res = await fetch("/api/dev/vision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-email": userEmail || "" },
-        body: JSON.stringify({ imageBase64: imageCompressed, userPrompt: userMsg }),
-      })
-
-      clearInterval(progInterval)
-      setVisionProgress(80)
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-
-      setVisionRawText(data.rawText || "")
-      const ids: string[] = data.modelIds || []
-
-      if (!ids.length) {
-        setVisionError("لم يتم العثور على أسماء موديلات في الصورة. جرّب صورة أوضح أو أضف نص توضيحي.")
-        setVisionPhase("ready")
-        setVisionProgress(0)
-        return
-      }
-
-      setExtractedIds(ids)
-      setVisionProgress(90)
-      const added = await updateModelRegistry(ids)
-      setNewlyAdded(added)
-      setVisionProgress(100)
-      setVisionPhase("done")
-
-      toaster.create({
-        title: added.length ? `✓ أُضيف ${added.length} موديل جديد` : "✓ التحليل اكتمل",
-        description: added.length
-          ? added.slice(0, 3).join("، ") + (added.length > 3 ? "..." : "")
-          : "جميع الموديلات موجودة مسبقًا",
-        type: "success",
-      })
-    } catch (err: any) {
-      setVisionError(err.message)
-      setVisionPhase("ready")
-      setVisionProgress(0)
-    } finally {
-      setVisionLoading(false)
-    }
-  }
-
-  // ── Update model registry ─────────────────────────────────────────────────────
-  const updateModelRegistry = async (modelIds: string[]): Promise<string[]> => {
-    const res = await fetch(`/api/dev/file?path=${encodeURIComponent(MODEL_CONFIG_PATH)}`, {
-      headers: { "x-user-email": userEmail || "" },
-    })
-    const data = await res.json()
-    if (!data.content) throw new Error("Could not load model registry")
-
-    const current: string = data.content
-    const toAdd = modelIds.filter((id) => !current.includes(`"${id}"`))
-    if (!toAdd.length) return []
-
-    const entries = toAdd.map((id) => {
-      const name = id.split("/").pop() || id
-      return `  {\n    id: "${id}",\n    name: "${name}",\n    provider: "NVIDIA",\n    type: "general",\n    size: "-",\n    description: "Auto-discovered via Image Context",\n    badges: ["new"],\n  },\n`
-    })
-
-    const marker = "const ALL_MODELS: ModelConfig[] = [\n"
-    const idx = current.indexOf(marker)
-    if (idx === -1) throw new Error("Model registry marker not found in index.ts")
-
-    const updated =
-      current.slice(0, idx + marker.length) +
-      entries.join("") +
-      current.slice(idx + marker.length)
-
-    const saveRes = await fetch("/api/dev/apply", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-email": userEmail || "" },
-      body: JSON.stringify({ path: MODEL_CONFIG_PATH, content: updated }),
-    })
-    const saveData = await saveRes.json()
-    if (!saveData.success) throw new Error(saveData.error || "Failed to save model registry")
-    return toAdd
   }
 
   const getLanguage = (p: string) => {
@@ -445,7 +417,7 @@ export default function DevStudio() {
     return "text"
   }
 
-  // File tree grouping
+  // File tree
   const fileTree: Record<string, string[]> = {}
   files.forEach((f) => {
     const parts = f.split("/")
@@ -454,24 +426,11 @@ export default function DevStudio() {
     fileTree[folder].push(f)
   })
 
-  // Diff lines
-  const diffLines = pendingCode && fileContent ? computeDiff(fileContent, pendingCode) : []
-  const diffAdded = diffLines.filter((l) => l.type === "add").length
-  const diffRemoved = diffLines.filter((l) => l.type === "remove").length
-
-  // Phase labels
-  const phaseLabel: Record<string, string> = {
-    idle: "",
-    compressing: `ضغط الصورة... ${visionProgress}%`,
-    ready: "جاهزة للتحليل",
-    uploading: `رفع الصورة... ${visionProgress}%`,
-    analysing: `جارٍ التحليل بـ NVIDIA Vision... ${visionProgress}%`,
-    done: "اكتمل التحليل ✓",
-  }
+  const diffLines = showDiff && fileContent ? computeDiff(fileContent, showDiff.code) : []
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <Flex h="100%" bg="#0a0a0f" color="white" overflow="hidden" direction={{ base: "column", md: "row" }}>
+    <Flex h="100%" bg="#0a0a0f" color="white" overflow="hidden" direction="column">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -481,552 +440,601 @@ export default function DevStudio() {
         onChange={(e) => e.target.files?.[0] && handlePickImage(e.target.files[0])}
       />
 
-      {/* ══ SIDEBAR ════════════════════════════════════════════════════════════ */}
-      <Box
-        w="210px"
-        flexShrink={0}
-        borderRight="1px solid"
+      {/* Mobile tab bar */}
+      <HStack
+        display={{ base: "flex", md: "none" }}
+        gap="0"
+        borderBottom="1px solid"
         borderColor="rgba(99,102,241,0.15)"
-        display={{ base: "none", md: "flex" }}
-        flexDirection="column"
-        bg="rgba(10,10,15,0.98)"
-        overflowY="auto"
+        flexShrink={0}
       >
-        <HStack px="3" py="3" gap="2" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)">
-          <Icon as={LuTerminal} color="brand.400" boxSize="14px" />
-          <Text fontSize="xs" fontWeight="700" color="brand.300" textTransform="uppercase" letterSpacing="0.08em">Dev Studio</Text>
-        </HStack>
+        <Button flex="1" size="sm" borderRadius="0" variant="ghost"
+          bg={mobilePanel === "chat" ? "rgba(99,102,241,0.15)" : "transparent"}
+          color={mobilePanel === "chat" ? "brand.300" : "gray.500"}
+          onClick={() => setMobilePanel("chat")}
+        >
+          <Icon as={LuBot} mr="1.5" boxSize="12px" />Chat
+        </Button>
+        <Button flex="1" size="sm" borderRadius="0" variant="ghost"
+          bg={mobilePanel === "editor" ? "rgba(99,102,241,0.15)" : "transparent"}
+          color={mobilePanel === "editor" ? "brand.300" : "gray.500"}
+          onClick={() => setMobilePanel("editor")}
+        >
+          <Icon as={LuCode} mr="1.5" boxSize="12px" />Editor
+        </Button>
+      </HStack>
 
-        {/* Nav items */}
-        {([
-          { id: "vision" as PanelId, label: "Image Context", icon: LuScanLine, badge: visionPhase === "done" ? "✓" : undefined },
-          { id: "explorer" as PanelId, label: "Files", icon: LuFolder },
-          { id: "editor" as PanelId, label: "AI Editor", icon: LuCode },
-        ]).map(({ id, label, icon, badge }) => (
-          <Box
-            key={id}
-            px="3" py="2.5" cursor="pointer" transition="all 0.15s"
-            bg={activePanel === id ? "rgba(99,102,241,0.15)" : "transparent"}
-            borderLeft="2px solid"
-            borderColor={activePanel === id ? "brand.400" : "transparent"}
-            onClick={() => setActivePanel(id)}
+      {/* Main split layout */}
+      <Flex flex="1" overflow="hidden">
+
+        {/* ══ CHAT PANEL ════════════════════════════════════════════════════════ */}
+        <Flex
+          direction="column"
+          w={{ base: "100%", md: "420px" }}
+          flexShrink={0}
+          borderRight={{ md: "1px solid" }}
+          borderColor="rgba(99,102,241,0.15)"
+          display={{ base: mobilePanel === "chat" ? "flex" : "none", md: "flex" }}
+          bg="rgba(8,8,14,0.98)"
+          overflow="hidden"
+        >
+          {/* Chat header */}
+          <HStack
+            px="4" py="3"
+            borderBottom="1px solid"
+            borderColor="rgba(99,102,241,0.12)"
+            gap="2"
+            flexShrink={0}
           >
-            <HStack gap="2">
-              <Icon as={icon} boxSize="13px" color={activePanel === id ? "brand.300" : "gray.500"} />
-              <Text fontSize="xs" fontWeight={activePanel === id ? "600" : "400"} color={activePanel === id ? "gray.200" : "gray.500"}>
-                {label}
-              </Text>
-              {badge && <Badge ml="auto" size="sm" colorPalette="green" variant="subtle" fontSize="2xs">{badge}</Badge>}
-            </HStack>
-          </Box>
-        ))}
-
-        <Separator borderColor="rgba(99,102,241,0.1)" my="1" />
-
-        {/* File tree */}
-        <Box flex="1" overflowY="auto">
-          <HStack px="3" py="1.5" justify="space-between">
-            <Text fontSize="2xs" color="gray.600" textTransform="uppercase" letterSpacing="0.06em">Files</Text>
-            <Icon as={LuRefreshCw} boxSize="11px" color="gray.600" cursor="pointer" onClick={loadFiles} />
+            <Box p="1.5" bg="rgba(99,102,241,0.15)" borderRadius="md">
+              <Icon as={LuBot} color="brand.400" boxSize="14px" />
+            </Box>
+            <VStack align="start" gap="0" flex="1">
+              <Text fontSize="xs" fontWeight="700" color="gray.200">Shrpo Dev AI</Text>
+              <Text fontSize="2xs" color="gray.600" fontFamily="mono">{CODER_MODEL.split("/")[1]}</Text>
+            </VStack>
+            {activeFile && (
+              <Badge colorPalette="brand" variant="subtle" fontSize="2xs" maxW="120px" isTruncated>
+                {activeFile.split("/").pop()}
+              </Badge>
+            )}
+            {sessionCtx.lastImageName && (
+              <Badge colorPalette="purple" variant="subtle" fontSize="2xs" title={`صورة محفوظة: ${sessionCtx.lastImageName}`}>
+                📷
+              </Badge>
+            )}
+            <Icon as={LuTrash2} boxSize="13px" color="gray.700" cursor="pointer"
+              _hover={{ color: "gray.400" }}
+              onClick={() => {
+                setMessages([{ id: uid(), role: "system", content: "تم مسح المحادثة.", ts: Date.now() }])
+                setSessionCtx({ extractedModels: [], lastImageAnalysis: "", lastImageBase64: null, lastImageName: null })
+              }}
+            />
           </HStack>
-          {Object.entries(fileTree).map(([folder, folderFiles]) => (
-            <Box key={folder}>
-              <HStack px="3" py="1" gap="1.5">
-                <Icon as={LuFolder} boxSize="10px" color="gray.600" />
-                <Text fontSize="2xs" color="gray.600" fontWeight="600">{folder}</Text>
-              </HStack>
-              {folderFiles.map((f) => (
+
+          {/* File selector strip */}
+          <Box
+            px="3" py="2"
+            borderBottom="1px solid"
+            borderColor="rgba(99,102,241,0.08)"
+            flexShrink={0}
+            overflowX="auto"
+          >
+            <HStack gap="1.5" minW="max-content">
+              <Text fontSize="2xs" color="gray.700" fontWeight="600" textTransform="uppercase" letterSpacing="0.05em" mr="1">
+                ملف:
+              </Text>
+              {files.slice(0, 12).map((f) => (
                 <Box
-                  key={f} px="5" py="1" cursor="pointer" transition="all 0.1s"
-                  bg={activeFile === f ? "rgba(99,102,241,0.12)" : "transparent"}
-                  _hover={{ bg: "rgba(99,102,241,0.07)" }}
+                  key={f}
+                  as="button"
+                  px="2" py="0.5"
+                  borderRadius="md"
+                  bg={activeFile === f ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)"}
+                  border="1px solid"
+                  borderColor={activeFile === f ? "brand.600" : "rgba(99,102,241,0.1)"}
                   onClick={() => openFile(f)}
+                  flexShrink={0}
                 >
-                  <Text fontSize="2xs" color={activeFile === f ? "brand.300" : "gray.500"} isTruncated>
+                  <Text fontSize="2xs" color={activeFile === f ? "brand.300" : "gray.600"} fontFamily="mono">
                     {f.split("/").pop()}
                   </Text>
                 </Box>
               ))}
-            </Box>
-          ))}
-        </Box>
-      </Box>
-
-      {/* ══ MAIN CONTENT ═══════════════════════════════════════════════════════ */}
-      <Flex flex="1" direction="column" overflow="hidden">
-
-        {/* Mobile tabs */}
-        <HStack display={{ base: "flex", md: "none" }} gap="0" borderBottom="1px solid" borderColor="rgba(99,102,241,0.15)">
-          {(["vision", "explorer", "editor"] as PanelId[]).map((id) => (
-            <Button key={id} flex="1" size="sm" borderRadius="0" variant="ghost"
-              bg={activePanel === id ? "rgba(99,102,241,0.15)" : "transparent"}
-              color={activePanel === id ? "brand.300" : "gray.500"}
-              onClick={() => setActivePanel(id)}
-            >
-              {id === "vision" ? "Vision" : id === "explorer" ? "Files" : "Edit"}
-            </Button>
-          ))}
-        </HStack>
-
-        {/* ══ VISION PANEL ═══════════════════════════════════════════════════ */}
-        {activePanel === "vision" && (
-          <Box flex="1" overflowY="auto" p={{ base: "4", md: "6" }}>
-
-            {/* Header */}
-            <HStack gap="3" mb="5">
-              <Box p="2" bg="rgba(99,102,241,0.15)" borderRadius="lg">
-                <Icon as={LuScanLine} color="brand.400" boxSize="18px" />
+              <Box
+                as="button"
+                px="2" py="0.5"
+                borderRadius="md"
+                bg="rgba(255,255,255,0.03)"
+                border="1px solid"
+                borderColor="rgba(99,102,241,0.08)"
+                onClick={loadFiles}
+                flexShrink={0}
+              >
+                <Icon as={LuRefreshCw} boxSize="10px" color="gray.600" />
               </Box>
-              <VStack align="start" gap="0">
-                <Text fontWeight="700" fontSize="md">Image Context</Text>
-                <Text fontSize="xs" color="gray.500">ارفع صورة من NVIDIA → حلّلها → تحديث تلقائي للموديلات</Text>
+            </HStack>
+          </Box>
+
+          {/* Message history */}
+          <Box flex="1" overflowY="auto" px="3" py="3"
+            css={{
+              "&::-webkit-scrollbar": { width: "4px" },
+              "&::-webkit-scrollbar-thumb": { background: "rgba(99,102,241,0.2)", borderRadius: "2px" },
+            }}
+          >
+            <VStack align="stretch" gap="3">
+              {messages.map((msg) => (
+                <ChatBubble
+                  key={msg.id}
+                  msg={msg}
+                  activeFile={activeFile}
+                  fileContent={fileContent}
+                  onApply={applyCode}
+                  onShowDiff={(code) => setShowDiff({ code })}
+                  onOpenFile={openFile}
+                />
+              ))}
+              {isStreaming && messages[messages.length - 1]?.role === "assistant" &&
+                messages[messages.length - 1].content === "" && (
+                  <Flex px="3" py="2" gap="2" align="center">
+                    <Icon as={LuBot} boxSize="13px" color="brand.400" />
+                    <HStack gap="1">
+                      {[0, 1, 2].map((i) => (
+                        <Box
+                          key={i} w="5px" h="5px" borderRadius="full" bg="brand.400"
+                          style={{ animation: `bounce 1.2s ${i * 0.2}s infinite` }}
+                        />
+                      ))}
+                    </HStack>
+                  </Flex>
+                )}
+            </VStack>
+            <div ref={chatEndRef} />
+          </Box>
+
+          {/* Pending image preview */}
+          {pendingImage && (
+            <Box
+              px="3" py="2"
+              borderTop="1px solid"
+              borderColor="rgba(99,102,241,0.1)"
+              flexShrink={0}
+            >
+              <HStack gap="2">
+                <Box position="relative">
+                  <Box as="img" src={pendingImage.preview} alt={pendingImage.name}
+                    w="48px" h="48px" objectFit="cover" borderRadius="md" border="1px solid" borderColor="brand.600" />
+                  <Icon as={LuX} boxSize="12px" position="absolute" top="-4px" right="-4px"
+                    bg="red.600" borderRadius="full" p="0.5" cursor="pointer" color="white"
+                    onClick={() => setPendingImage(null)} />
+                </Box>
+                <VStack align="start" gap="0" flex="1">
+                  <Text fontSize="2xs" color="gray.300" isTruncated maxW="180px">{pendingImage.name}</Text>
+                  <Text fontSize="2xs" color="gray.600">
+                    {fmtBytes(pendingImage.originalSize)} → {fmtBytes(pendingImage.compressedSize)}
+                    {" "}(−{Math.round((1 - pendingImage.compressedSize / pendingImage.originalSize) * 100)}%)
+                  </Text>
+                </VStack>
+                <Badge colorPalette="purple" variant="subtle" fontSize="2xs">{VISION_MODEL.split("/")[1]}</Badge>
+              </HStack>
+            </Box>
+          )}
+
+          {/* Input area */}
+          <Box
+            px="3" py="3"
+            borderTop="1px solid"
+            borderColor="rgba(99,102,241,0.12)"
+            bg="rgba(10,10,15,0.98)"
+            flexShrink={0}
+          >
+            <HStack gap="2" align="flex-end">
+              <Textarea
+                ref={inputRef}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={
+                  activeFile
+                    ? `اطلب تعديلًا على ${activeFile.split("/").pop()}...`
+                    : "اختر ملفًا ثم اكتب طلبك..."
+                }
+                fontSize="sm"
+                resize="none"
+                rows={2}
+                bg="rgba(255,255,255,0.03)"
+                border="1px solid"
+                borderColor="rgba(99,102,241,0.2)"
+                borderRadius="xl"
+                _focus={{ borderColor: "brand.500", outline: "none", bg: "rgba(99,102,241,0.05)" }}
+                flex="1"
+                disabled={isStreaming}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() }
+                }}
+              />
+              <VStack gap="1.5" flexShrink={0}>
+                {/* Upload image button */}
+                <Button
+                  size="sm" w="9" h="9" p="0" borderRadius="lg"
+                  variant="ghost"
+                  border="1px solid"
+                  borderColor={pendingImage ? "purple.500" : "rgba(99,102,241,0.2)"}
+                  bg={pendingImage ? "rgba(139,92,246,0.15)" : "transparent"}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={compressing}
+                  title="رفع صورة"
+                >
+                  {compressing ? <Spinner size="xs" /> : <Icon as={LuUpload} boxSize="13px" color={pendingImage ? "purple.400" : "gray.500"} />}
+                </Button>
+                {/* Send button */}
+                <Button
+                  size="sm" w="9" h="9" p="0" borderRadius="lg"
+                  bg={isStreaming ? "rgba(99,102,241,0.2)" : "linear-gradient(135deg, #6366f1, #8b5cf6)"}
+                  color="white"
+                  onClick={sendMessage}
+                  disabled={isStreaming || (!inputText.trim() && !pendingImage)}
+                  title="إرسال (Enter)"
+                >
+                  {isStreaming ? <Spinner size="xs" /> : <Icon as={LuSend} boxSize="13px" />}
+                </Button>
               </VStack>
             </HStack>
+            <Text fontSize="2xs" color="gray.700" mt="1.5">
+              {pendingImage ? `📷 Vision: ${VISION_MODEL.split("/")[1]}` : `💻 Coder: ${CODER_MODEL.split("/")[1]}`}
+              {sessionCtx.lastImageName && !pendingImage ? ` · 📷 ${sessionCtx.lastImageName} محفوظة` : ""}
+            </Text>
+          </Box>
+        </Flex>
 
-            {/* ── Step 1: Upload ── */}
-            <Box mb="4">
-              <Text fontSize="xs" fontWeight="600" color="gray.500" textTransform="uppercase" letterSpacing="0.06em" mb="2">
-                الخطوة 1 — رفع الصورة
-              </Text>
-              <Box
-                border="2px dashed"
-                borderColor={imagePreview ? "brand.600" : "rgba(99,102,241,0.3)"}
-                borderRadius="xl"
-                p="5"
-                textAlign="center"
-                cursor="pointer"
-                _hover={{ borderColor: "brand.400", bg: "rgba(99,102,241,0.04)" }}
-                transition="all 0.2s"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {visionPhase === "compressing" ? (
-                  <VStack gap="3">
-                    <Spinner color="brand.400" size="md" />
-                    <Text fontSize="sm" color="gray.400">{phaseLabel.compressing}</Text>
-                    <Box w="full" bg="rgba(255,255,255,0.06)" borderRadius="full" h="4px">
-                      <Box bg="brand.400" h="4px" borderRadius="full" w={`${visionProgress}%`} transition="width 0.3s" />
-                    </Box>
-                  </VStack>
-                ) : imagePreview ? (
-                  <VStack gap="3">
-                    <Box as="img" src={imagePreview} alt="preview" maxH="180px" borderRadius="lg" mx="auto" objectFit="contain" />
-                    <HStack gap="2" justify="center" flexWrap="wrap">
-                      <Badge colorPalette="gray" variant="subtle" fontSize="xs" fontFamily="mono">{imageFile?.name}</Badge>
-                      <Badge colorPalette="orange" variant="subtle" fontSize="xs">أصل: {fmtBytes(originalSize)}</Badge>
-                      {compressedSize > 0 && (
-                        <Badge colorPalette="green" variant="subtle" fontSize="xs">
-                          مضغوط: {fmtBytes(compressedSize)} (−{Math.round((1 - compressedSize / originalSize) * 100)}%)
-                        </Badge>
-                      )}
-                    </HStack>
-                    <Text fontSize="xs" color="gray.600">اضغط لتغيير الصورة</Text>
-                  </VStack>
-                ) : (
-                  <VStack gap="3">
-                    <Box p="4" bg="rgba(99,102,241,0.1)" borderRadius="xl">
-                      <Icon as={LuUpload} boxSize="28px" color="brand.400" />
-                    </Box>
-                    <Text color="gray.300" fontWeight="500">اضغط لاختيار صورة</Text>
-                    <Text fontSize="xs" color="gray.600">PNG / JPG / WebP · يُضغط تلقائيًا إلى max 1200px</Text>
-                  </VStack>
-                )}
-              </Box>
-
-              {/* Upload button alternative */}
-              <Button
-                mt="3" w="full" size="sm"
-                variant="outline"
-                borderColor="rgba(99,102,241,0.3)"
-                color="gray.400"
-                _hover={{ borderColor: "brand.400", color: "white" }}
-                onClick={() => fileInputRef.current?.click()}
-                leftIcon={<LuUpload />}
-              >
-                {imageFile ? `تغيير الصورة (${imageFile.name})` : "اختيار صورة"}
-              </Button>
-            </Box>
-
-            {/* ── Step 2: Custom prompt ── */}
-            {visionPhase !== "idle" && (
-              <Box mb="4">
-                <Text fontSize="xs" fontWeight="600" color="gray.500" textTransform="uppercase" letterSpacing="0.06em" mb="2">
-                  الخطوة 2 — ماذا تريد من هذه الصورة؟
-                </Text>
-                <Textarea
-                  value={visionPrompt}
-                  onChange={(e) => setVisionPrompt(e.target.value)}
-                  placeholder={`مثال: استخرج جميع أسماء الموديلات\nأو: حلّل القائمة وأخبرني بأسماء جميع موديلات الـ Meta\nأو: ما هو الموديل المختار حاليًا؟`}
-                  rows={3}
-                  fontSize="sm"
-                  bg="rgba(255,255,255,0.03)"
-                  border="1px solid"
-                  borderColor="rgba(99,102,241,0.2)"
-                  borderRadius="lg"
-                  color="gray.300"
-                  _focus={{ borderColor: "brand.400", outline: "none" }}
-                  _placeholder={{ color: "gray.600", fontSize: "xs" }}
-                  resize="vertical"
-                />
-                <Text fontSize="xs" color="gray.600" mt="1">
-                  اتركه فارغًا لاستخراج أسماء الموديلات تلقائيًا، أو اكتب سؤالًا مخصصًا
-                </Text>
-              </Box>
-            )}
-
-            {/* ── Step 3: Process button ── */}
-            {(visionPhase === "ready" || visionPhase === "done") && (
-              <Box mb="4">
-                <Text fontSize="xs" fontWeight="600" color="gray.500" textTransform="uppercase" letterSpacing="0.06em" mb="2">
-                  الخطوة 3 — التحليل
-                </Text>
+        {/* ══ EDITOR PANEL ══════════════════════════════════════════════════════ */}
+        <Flex
+          direction="column"
+          flex="1"
+          overflow="hidden"
+          display={{ base: mobilePanel === "editor" ? "flex" : "none", md: "flex" }}
+        >
+          {/* Editor header */}
+          <HStack
+            px="3" py="2"
+            borderBottom="1px solid"
+            borderColor="rgba(99,102,241,0.12)"
+            bg="rgba(10,10,15,0.98)"
+            gap="2"
+            flexShrink={0}
+          >
+            <Icon as={LuCode} color="brand.400" boxSize="13px" />
+            <Text fontSize="xs" color="gray.500" fontWeight="600">EDITOR</Text>
+            {isDirty && activeFile && (
+              <>
+                <Badge colorPalette="orange" variant="subtle" fontSize="2xs">تغييرات غير محفوظة</Badge>
                 <Button
-                  w="full"
-                  size="lg"
+                  size="xs" ml="auto"
                   bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
                   color="white"
-                  _hover={{ opacity: 0.9, transform: "translateY(-1px)" }}
-                  _active={{ transform: "translateY(0)" }}
-                  transition="all 0.2s"
-                  onClick={processImage}
-                  disabled={visionLoading}
+                  onClick={saveFile}
                 >
-                  <HStack gap="2">
-                    {visionLoading ? <Spinner size="sm" /> : <Icon as={LuScanLine} />}
-                    <Text>{visionLoading ? phaseLabel[visionPhase] : visionPhase === "done" ? "إعادة التحليل" : "تحليل الصورة بـ NVIDIA Vision"}</Text>
-                  </HStack>
+                  <Icon as={LuSave} mr="1" boxSize="11px" />حفظ
                 </Button>
-              </Box>
-            )}
-
-            {/* Processing in progress */}
-            {(visionPhase === "uploading" || visionPhase === "analysing") && (
-              <Box mb="4" bg="rgba(99,102,241,0.08)" border="1px solid" borderColor="rgba(99,102,241,0.2)" borderRadius="xl" p="4">
-                <HStack gap="3" mb="3">
-                  <Spinner color="brand.400" size="sm" />
-                  <Text fontSize="sm" color="gray.300" fontWeight="500">{phaseLabel[visionPhase]}</Text>
-                </HStack>
-                <Box w="full" bg="rgba(255,255,255,0.06)" borderRadius="full" h="6px">
-                  <Box
-                    bg="linear-gradient(90deg, #6366f1, #8b5cf6)"
-                    h="6px"
-                    borderRadius="full"
-                    w={`${visionProgress}%`}
-                    transition="width 0.4s ease"
-                  />
-                </Box>
-                <Text fontSize="xs" color="gray.600" mt="2">
-                  Timeout: 120 ثانية · Model: {VISION_MODEL}
-                </Text>
-              </Box>
-            )}
-
-            {/* Error */}
-            {visionError && (
-              <Box bg="rgba(239,68,68,0.08)" border="1px solid" borderColor="rgba(239,68,68,0.25)" borderRadius="lg" p="4" mb="4">
-                <HStack gap="2" mb="1">
-                  <Icon as={LuCircleAlert} color="red.400" boxSize="15px" />
-                  <Text fontSize="sm" color="red.300" fontWeight="600">خطأ</Text>
-                </HStack>
-                <Text fontSize="xs" color="red.400">{visionError}</Text>
-              </Box>
-            )}
-
-            {/* Results */}
-            {visionPhase === "done" && extractedIds.length > 0 && (
-              <Box bg="rgba(99,102,241,0.07)" border="1px solid" borderColor="rgba(99,102,241,0.2)" borderRadius="xl" p="5" mb="4">
-                <HStack gap="2" mb="4">
-                  <Icon as={LuCheck} color="green.400" boxSize="16px" />
-                  <Text fontWeight="700" fontSize="sm">نتيجة التحليل</Text>
-                  <Badge colorPalette="brand" variant="subtle" ml="auto">{extractedIds.length} موديل</Badge>
-                </HStack>
-
-                <VStack align="start" gap="2" mb="4">
-                  {extractedIds.map((id) => {
-                    const isNew = newlyAdded.includes(id)
-                    return (
-                      <HStack key={id} gap="2" w="full">
-                        <Box w="1.5" h="1.5" borderRadius="full" bg={isNew ? "green.400" : "gray.600"} flexShrink={0} />
-                        <Text fontSize="xs" fontFamily="mono" color={isNew ? "gray.200" : "gray.500"} flex="1" isTruncated>{id}</Text>
-                        {isNew && <Badge colorPalette="green" variant="subtle" fontSize="2xs" flexShrink={0}>جديد</Badge>}
-                      </HStack>
-                    )
-                  })}
-                </VStack>
-
-                {newlyAdded.length > 0 ? (
-                  <Box bg="rgba(34,197,94,0.08)" border="1px solid" borderColor="rgba(34,197,94,0.2)" borderRadius="lg" p="3">
-                    <Text fontSize="xs" color="green.400" fontWeight="600">
-                      ✓ أُضيف {newlyAdded.length} موديل جديد إلى {MODEL_CONFIG_PATH}
-                    </Text>
-                  </Box>
-                ) : (
-                  <Box bg="rgba(99,102,241,0.06)" borderRadius="lg" p="3">
-                    <Text fontSize="xs" color="gray.500">جميع الموديلات موجودة مسبقًا في النظام</Text>
-                  </Box>
-                )}
-
-                {/* Raw response toggle */}
-                {visionRawText && (
-                  <Box mt="3">
-                    <Text fontSize="xs" color="gray.600" mb="1">الرد الخام من الموديل:</Text>
-                    <Box
-                      bg="rgba(0,0,0,0.4)" borderRadius="md" p="3" maxH="100px" overflowY="auto"
-                      fontFamily="mono" fontSize="2xs" color="gray.500"
-                    >
-                      {visionRawText.slice(0, 500)}{visionRawText.length > 500 ? "..." : ""}
-                    </Box>
-                  </Box>
-                )}
-              </Box>
-            )}
-
-            {/* Info footer */}
-            <Box p="3" bg="rgba(99,102,241,0.05)" borderRadius="lg" border="1px solid" borderColor="rgba(99,102,241,0.1)">
-              <Text fontSize="xs" color="gray.600" lineHeight="tall">
-                <Text as="span" color="brand.400" fontWeight="600">Vision: </Text>{VISION_MODEL}
-                {"  ·  "}
-                <Text as="span" color="brand.400" fontWeight="600">Timeout: </Text>120s
-                {"  ·  "}
-                <Text as="span" color="brand.400" fontWeight="600">ضغط: </Text>max 1200px JPEG 82%
-              </Text>
-            </Box>
-          </Box>
-        )}
-
-        {/* ══ EXPLORER PANEL (mobile) ═════════════════════════════════════════ */}
-        {activePanel === "explorer" && (
-          <Box flex="1" overflowY="auto" p="3">
-            <HStack justify="space-between" mb="3">
-              <Text fontSize="xs" color="gray.500" fontWeight="600" textTransform="uppercase" letterSpacing="0.06em">ملفات المشروع</Text>
-              <Icon as={LuRefreshCw} boxSize="12px" color="gray.600" cursor="pointer" onClick={loadFiles} />
-            </HStack>
-            {Object.entries(fileTree).map(([folder, folderFiles]) => (
-              <Box key={folder} mb="2">
-                <HStack gap="1.5" mb="1">
-                  <Icon as={LuFolder} boxSize="11px" color="gray.600" />
-                  <Text fontSize="2xs" color="gray.600" fontWeight="700">{folder}</Text>
-                </HStack>
-                {folderFiles.map((f) => (
-                  <Box
-                    key={f} pl="5" pr="3" py="1.5" cursor="pointer" borderRadius="md"
-                    bg={activeFile === f ? "rgba(99,102,241,0.12)" : "transparent"}
-                    _hover={{ bg: "rgba(99,102,241,0.07)" }}
-                    onClick={() => openFile(f)}
-                  >
-                    <Text fontSize="xs" color={activeFile === f ? "brand.300" : "gray.400"} isTruncated>{f.split("/").pop()}</Text>
-                  </Box>
-                ))}
-              </Box>
-            ))}
-          </Box>
-        )}
-
-        {/* ══ EDITOR PANEL ═══════════════════════════════════════════════════ */}
-        {activePanel === "editor" && (
-          <Flex flex="1" direction="column" overflow="hidden">
-            {/* Open file tabs */}
-            {openFiles.length > 0 && (
-              <HStack gap="0" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)" overflowX="auto" flexShrink={0} bg="rgba(10,10,15,0.8)">
-                {openFiles.map((f) => (
-                  <HStack
-                    key={f} gap="2" px="3" py="2" cursor="pointer" flexShrink={0}
-                    borderBottom="2px solid"
-                    borderColor={activeFile === f ? "brand.400" : "transparent"}
-                    bg={activeFile === f ? "rgba(99,102,241,0.1)" : "transparent"}
-                    onClick={() => openFile(f)}
-                  >
-                    <Text fontSize="xs" color={activeFile === f ? "gray.200" : "gray.500"}>
-                      {f.split("/").pop()}
-                    </Text>
-                    {activeFile === f && isDirty && <Box w="1.5" h="1.5" borderRadius="full" bg="orange.400" />}
-                    <Icon
-                      as={LuX} boxSize="10px" color="gray.600"
-                      _hover={{ color: "gray.300" }}
-                      onClick={(e) => { e.stopPropagation(); closeFile(f) }}
-                    />
-                  </HStack>
-                ))}
-              </HStack>
-            )}
-
-            {activeFile ? (
-              <>
-                {/* ── Diff view ── */}
-                {showDiff && pendingCode ? (
-                  <Box flex="1" overflowY="auto" fontFamily="mono" fontSize="xs">
-                    <HStack px="4" py="2" bg="rgba(10,10,15,0.9)" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)" flexShrink={0}>
-                      <Icon as={LuFileDiff} color="brand.400" boxSize="13px" />
-                      <Text fontSize="xs" color="gray.400">معاينة التغييرات</Text>
-                      <Badge colorPalette="green" variant="subtle" fontSize="2xs" ml="2">+{diffAdded}</Badge>
-                      <Badge colorPalette="red" variant="subtle" fontSize="2xs">−{diffRemoved}</Badge>
-                      <Button
-                        size="xs" variant="ghost" ml="auto" color="gray.500"
-                        onClick={() => setShowDiff(false)}
-                      >
-                        <Icon as={LuX} boxSize="11px" />
-                      </Button>
-                    </HStack>
-                    <Box overflowY="auto" flex="1">
-                      {diffLines.map((line, i) => (
-                        <Box
-                          key={i}
-                          px="4" py="0.5"
-                          bg={
-                            line.type === "add" ? "rgba(34,197,94,0.1)" :
-                            line.type === "remove" ? "rgba(239,68,68,0.1)" :
-                            "transparent"
-                          }
-                          borderLeft="3px solid"
-                          borderColor={
-                            line.type === "add" ? "green.500" :
-                            line.type === "remove" ? "red.500" :
-                            "transparent"
-                          }
-                        >
-                          <Text
-                            color={
-                              line.type === "add" ? "green.300" :
-                              line.type === "remove" ? "red.300" :
-                              "gray.600"
-                            }
-                            whiteSpace="pre"
-                            fontSize="xs"
-                          >
-                            {line.type === "add" ? "+ " : line.type === "remove" ? "- " : "  "}
-                            {line.text}
-                          </Text>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
-                ) : (
-                  <Box flex="1" overflow="hidden">
-                    {loadingFile ? (
-                      <Flex h="full" align="center" justify="center">
-                        <Spinner color="brand.400" />
-                      </Flex>
-                    ) : (
-                      <Editor
-                        height="100%"
-                        language={getLanguage(activeFile)}
-                        value={fileContent}
-                        onChange={(v) => { setFileContent(v || ""); setIsDirty(v !== originalContent) }}
-                        theme="vs-dark"
-                        options={{ fontSize: 13, minimap: { enabled: false }, wordWrap: "on", scrollBeyondLastLine: false }}
-                      />
-                    )}
-                  </Box>
-                )}
-
-                {/* ── AI prompt bar ── */}
-                <Box
-                  borderTop="1px solid" borderColor="rgba(99,102,241,0.15)"
-                  bg="rgba(10,10,15,0.98)" p="3" flexShrink={0}
-                >
-                  {/* Status bar */}
-                  <HStack gap="2" mb="2" flexWrap="wrap">
-                    <HStack gap="1.5">
-                      <Icon as={LuSparkles} color="brand.400" boxSize="11px" />
-                      <Text fontSize="2xs" color="gray.600" fontFamily="mono">{CODER_MODEL}</Text>
-                    </HStack>
-                    {AUTH_FILES.some((af) => activeFile?.endsWith(af)) && (
-                      <Badge colorPalette="orange" variant="subtle" fontSize="2xs">
-                        <Icon as={LuShieldCheck} boxSize="9px" mr="1" />
-                        محمي
-                      </Badge>
-                    )}
-                    {isDirty && <Badge colorPalette="orange" variant="subtle" fontSize="2xs">تغييرات غير محفوظة</Badge>}
-                    {pendingCode && (
-                      <Badge colorPalette="purple" variant="subtle" fontSize="2xs" cursor="pointer" onClick={() => setShowDiff(!showDiff)}>
-                        <Icon as={LuEye} boxSize="9px" mr="1" />
-                        {showDiff ? "إخفاء Diff" : "عرض Diff"}
-                      </Badge>
-                    )}
-                  </HStack>
-
-                  {/* Prompt + action buttons */}
-                  <HStack gap="2" align="flex-end">
-                    <Textarea
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder="اطلب تعديلًا على الكود... (مثل: أضف dark mode toggle)"
-                      fontSize="sm"
-                      resize="none"
-                      rows={2}
-                      bg="rgba(255,255,255,0.03)"
-                      border="1px solid"
-                      borderColor="rgba(99,102,241,0.2)"
-                      borderRadius="lg"
-                      _focus={{ borderColor: "brand.400", outline: "none" }}
-                      flex="1"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); runAI() }
-                      }}
-                    />
-                    <VStack gap="1.5" flexShrink={0}>
-                      <Button
-                        size="sm" w="8" h="8" p="0"
-                        bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
-                        color="white" borderRadius="lg"
-                        onClick={runAI}
-                        disabled={aiLoading || !aiPrompt.trim()}
-                        title="توليد (Enter)"
-                      >
-                        {aiLoading ? <Spinner size="xs" /> : <Icon as={LuSend} boxSize="13px" />}
-                      </Button>
-                      <Button
-                        size="sm" w="8" h="8" p="0"
-                        variant="ghost" colorScheme="green"
-                        borderRadius="lg" border="1px solid"
-                        borderColor={pendingCode ? "green.600" : "gray.700"}
-                        onClick={applyChanges}
-                        disabled={!pendingCode}
-                        title="تطبيق التغييرات"
-                      >
-                        <Icon as={LuCheck} boxSize="13px" color={pendingCode ? "green.400" : "gray.600"} />
-                      </Button>
-                      <Button
-                        size="sm" w="8" h="8" p="0"
-                        variant="ghost"
-                        borderRadius="lg" border="1px solid"
-                        borderColor={isDirty ? "blue.600" : "gray.700"}
-                        onClick={saveFile}
-                        disabled={!isDirty}
-                        title="حفظ الملف"
-                      >
-                        <Icon as={LuSave} boxSize="13px" color={isDirty ? "blue.400" : "gray.600"} />
-                      </Button>
-                    </VStack>
-                  </HStack>
-
-                  {/* AI response preview */}
-                  {aiResponse && !pendingCode && (
-                    <Box
-                      mt="2" maxH="80px" overflowY="auto"
-                      bg="rgba(0,0,0,0.4)" borderRadius="md" p="2"
-                    >
-                      <Text fontSize="2xs" color="gray.500" fontFamily="mono" whiteSpace="pre-wrap">
-                        {aiResponse.slice(0, 300)}{aiResponse.length > 300 ? "..." : ""}
-                      </Text>
-                    </Box>
-                  )}
-                </Box>
               </>
-            ) : (
-              <Flex flex="1" align="center" justify="center" direction="column" gap="3">
-                <Box p="4" bg="rgba(99,102,241,0.08)" borderRadius="xl">
-                  <Icon as={LuCode} boxSize="28px" color="gray.600" />
-                </Box>
-                <Text color="gray.600" fontSize="sm">اختر ملفًا من القائمة على اليسار</Text>
-                <Button size="sm" variant="ghost" color="brand.400" onClick={loadFiles} leftIcon={<LuRefreshCw />}>
-                  تحديث القائمة
-                </Button>
-              </Flex>
             )}
-          </Flex>
-        )}
+            {activeFile && !isDirty && (
+              <Text fontSize="2xs" color="gray.700" ml="auto" fontFamily="mono">{activeFile}</Text>
+            )}
+          </HStack>
+
+          {/* Open file tabs */}
+          {openFiles.length > 0 && (
+            <HStack
+              gap="0" borderBottom="1px solid" borderColor="rgba(99,102,241,0.08)"
+              overflowX="auto" flexShrink={0}
+              bg="rgba(8,8,14,0.9)"
+            >
+              {openFiles.map((f) => (
+                <HStack
+                  key={f} gap="1.5" px="3" py="2" cursor="pointer" flexShrink={0}
+                  borderBottom="2px solid"
+                  borderColor={activeFile === f ? "brand.400" : "transparent"}
+                  bg={activeFile === f ? "rgba(99,102,241,0.1)" : "transparent"}
+                  _hover={{ bg: "rgba(99,102,241,0.06)" }}
+                  onClick={() => openFile(f)}
+                  transition="all 0.1s"
+                >
+                  <Icon as={LuFileCode} boxSize="10px" color={activeFile === f ? "brand.400" : "gray.600"} />
+                  <Text fontSize="xs" color={activeFile === f ? "gray.200" : "gray.500"}>
+                    {f.split("/").pop()}
+                  </Text>
+                  {activeFile === f && isDirty && (
+                    <Box w="5px" h="5px" borderRadius="full" bg="orange.400" flexShrink={0} />
+                  )}
+                  <Icon
+                    as={LuX} boxSize="9px" color="gray.700"
+                    _hover={{ color: "gray.400" }}
+                    flexShrink={0}
+                    onClick={(e) => { e.stopPropagation(); closeFile(f) }}
+                  />
+                </HStack>
+              ))}
+            </HStack>
+          )}
+
+          {/* Diff view or Monaco */}
+          {showDiff ? (
+            <Flex direction="column" flex="1" overflow="hidden">
+              <HStack px="4" py="2" bg="rgba(10,10,15,0.9)" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)" flexShrink={0}>
+                <Icon as={LuFileDiff} color="brand.400" boxSize="13px" />
+                <Text fontSize="xs" color="gray.400">معاينة Diff</Text>
+                <Badge colorPalette="green" variant="subtle" fontSize="2xs" ml="2">
+                  +{diffLines.filter((l) => l.type === "add").length}
+                </Badge>
+                <Badge colorPalette="red" variant="subtle" fontSize="2xs">
+                  −{diffLines.filter((l) => l.type === "remove").length}
+                </Badge>
+                <Button size="xs" ml="auto" variant="ghost" color="gray.500" onClick={() => setShowDiff(null)}>
+                  <Icon as={LuX} boxSize="11px" />
+                </Button>
+              </HStack>
+              <Box flex="1" overflowY="auto" fontFamily="mono">
+                {diffLines.map((line, i) => (
+                  <Box
+                    key={i} px="4" py="0.5"
+                    bg={line.type === "add" ? "rgba(34,197,94,0.08)" : line.type === "remove" ? "rgba(239,68,68,0.08)" : "transparent"}
+                    borderLeft="2px solid"
+                    borderColor={line.type === "add" ? "green.600" : line.type === "remove" ? "red.600" : "transparent"}
+                  >
+                    <Text
+                      fontSize="xs" whiteSpace="pre"
+                      color={line.type === "add" ? "green.300" : line.type === "remove" ? "red.300" : "gray.600"}
+                    >
+                      {line.type === "add" ? "+ " : line.type === "remove" ? "- " : "  "}{line.text}
+                    </Text>
+                  </Box>
+                ))}
+              </Box>
+            </Flex>
+          ) : activeFile ? (
+            <Box flex="1" overflow="hidden">
+              {loadingFile ? (
+                <Flex h="full" align="center" justify="center"><Spinner color="brand.400" /></Flex>
+              ) : (
+                <Editor
+                  height="100%"
+                  language={getLanguage(activeFile)}
+                  value={fileContent}
+                  onChange={(v) => { setFileContent(v || ""); setIsDirty(v !== originalContent) }}
+                  theme="vs-dark"
+                  options={{
+                    fontSize: 13,
+                    minimap: { enabled: false },
+                    wordWrap: "on",
+                    scrollBeyondLastLine: false,
+                    lineNumbers: "on",
+                  }}
+                />
+              )}
+            </Box>
+          ) : (
+            <Flex flex="1" align="center" justify="center" direction="column" gap="4">
+              <Box p="5" bg="rgba(99,102,241,0.08)" borderRadius="2xl">
+                <Icon as={LuCode} boxSize="36px" color="gray.700" />
+              </Box>
+              <Text color="gray.600" fontSize="sm">اختر ملفًا من شريط الملفات في الشات</Text>
+              <VStack gap="2" maxH="300px" overflowY="auto" w="full" px="6">
+                {Object.entries(fileTree).slice(0, 5).map(([folder, fs]) => (
+                  <Box key={folder} w="full">
+                    <Text fontSize="2xs" color="gray.700" fontWeight="600" mb="1">{folder}</Text>
+                    {fs.slice(0, 5).map((f) => (
+                      <Box
+                        key={f} px="3" py="1.5" cursor="pointer" borderRadius="md"
+                        _hover={{ bg: "rgba(99,102,241,0.08)" }}
+                        onClick={() => openFile(f)}
+                      >
+                        <Text fontSize="xs" color="gray.500" fontFamily="mono">{f.split("/").pop()}</Text>
+                      </Box>
+                    ))}
+                  </Box>
+                ))}
+              </VStack>
+            </Flex>
+          )}
+        </Flex>
       </Flex>
+
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+          30% { transform: translateY(-5px); opacity: 1; }
+        }
+      `}</style>
     </Flex>
   )
 }
 
+// ── Chat bubble component ──────────────────────────────────────────────────────
+function ChatBubble({
+  msg, activeFile, fileContent, onApply, onShowDiff, onOpenFile,
+}: {
+  msg: ChatMsg
+  activeFile: string | null
+  fileContent: string
+  onApply: (id: string, code: string, file: string | undefined) => void
+  onShowDiff: (code: string) => void
+  onOpenFile: (f: string) => void
+}) {
+  if (msg.role === "system") {
+    return (
+      <Box
+        px="3" py="2"
+        bg="rgba(99,102,241,0.06)"
+        borderRadius="lg"
+        border="1px solid"
+        borderColor="rgba(99,102,241,0.1)"
+      >
+        <Text fontSize="xs" color="gray.500" whiteSpace="pre-wrap">{msg.content}</Text>
+      </Box>
+    )
+  }
+
+  if (msg.role === "user") {
+    return (
+      <Flex justify="flex-end">
+        <Box maxW="85%">
+          {msg.imagePreview && (
+            <Box as="img" src={msg.imagePreview} alt="uploaded" maxH="120px" borderRadius="lg" mb="1" ml="auto" display="block" />
+          )}
+          {msg.content && (
+            <Box
+              bg="linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.2))"
+              border="1px solid"
+              borderColor="rgba(99,102,241,0.3)"
+              borderRadius="2xl"
+              borderBottomRightRadius="sm"
+              px="3" py="2"
+            >
+              <Text fontSize="sm" color="gray.200" whiteSpace="pre-wrap">{msg.content}</Text>
+            </Box>
+          )}
+        </Box>
+      </Flex>
+    )
+  }
+
+  // Assistant message
+  const hasCode = !!msg.code
+  const parts = splitMessageParts(msg.content)
+
+  return (
+    <Flex gap="2" align="flex-start">
+      <Box p="1.5" bg="rgba(99,102,241,0.15)" borderRadius="full" flexShrink={0} mt="1">
+        <Icon as={LuBot} boxSize="12px" color="brand.400" />
+      </Box>
+      <Box flex="1" maxW="calc(100% - 32px)">
+        {parts.map((part, i) => {
+          if (part.type === "text") {
+            return (
+              <Text key={i} fontSize="sm" color="gray.300" whiteSpace="pre-wrap" lineHeight="tall" mb={part.text.trim() ? "2" : "0"}>
+                {part.text}
+              </Text>
+            )
+          }
+          // Code block
+          return (
+            <Box key={i} mb="2">
+              <HStack
+                px="3" py="1.5"
+                bg="rgba(10,10,15,0.8)"
+                borderTopRadius="lg"
+                border="1px solid"
+                borderColor="rgba(99,102,241,0.2)"
+                borderBottom="none"
+                justify="space-between"
+              >
+                <HStack gap="1.5">
+                  <Icon as={LuCode} boxSize="11px" color="brand.400" />
+                  <Text fontSize="2xs" color="gray.500" fontFamily="mono">{part.lang || "code"}</Text>
+                </HStack>
+                {msg.codeFile && (
+                  <Text fontSize="2xs" color="gray.600" fontFamily="mono" isTruncated maxW="120px">
+                    {msg.codeFile.split("/").pop()}
+                  </Text>
+                )}
+              </HStack>
+              <Box
+                bg="rgba(10,10,15,0.9)"
+                border="1px solid"
+                borderColor="rgba(99,102,241,0.15)"
+                borderBottomRadius="lg"
+                p="3"
+                maxH="200px"
+                overflowY="auto"
+                css={{
+                  "&::-webkit-scrollbar": { width: "3px" },
+                  "&::-webkit-scrollbar-thumb": { background: "rgba(99,102,241,0.2)" },
+                }}
+              >
+                <Text fontSize="xs" color="gray.400" fontFamily="mono" whiteSpace="pre">
+                  {part.code.slice(0, 1500)}{part.code.length > 1500 ? "\n..." : ""}
+                </Text>
+              </Box>
+            </Box>
+          )
+        })}
+
+        {/* Action buttons for messages with code */}
+        {hasCode && (
+          <HStack gap="2" flexWrap="wrap" mt="1">
+            {!msg.applied ? (
+              <Button
+                size="xs"
+                bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
+                color="white"
+                borderRadius="lg"
+                onClick={() => onApply(msg.id, msg.code!, msg.codeFile)}
+              >
+                <Icon as={LuCheck} mr="1" boxSize="11px" />
+                Apply Changes
+                {msg.codeFile && (
+                  <Text as="span" ml="1" opacity={0.7}>{msg.codeFile.split("/").pop()}</Text>
+                )}
+              </Button>
+            ) : (
+              <Badge colorPalette="green" variant="subtle" fontSize="xs">
+                <Icon as={LuCheck} mr="1" boxSize="10px" />تم التطبيق
+              </Badge>
+            )}
+            {!msg.applied && fileContent && (
+              <Button
+                size="xs" variant="ghost"
+                borderRadius="lg"
+                border="1px solid"
+                borderColor="rgba(99,102,241,0.2)"
+                color="gray.500"
+                _hover={{ color: "gray.300", borderColor: "brand.600" }}
+                onClick={() => onShowDiff(msg.code!)}
+              >
+                <Icon as={LuFileDiff} mr="1" boxSize="11px" />Diff
+              </Button>
+            )}
+          </HStack>
+        )}
+
+        <Text fontSize="2xs" color="gray.700" mt="1.5">
+          {new Date(msg.ts).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
+        </Text>
+      </Box>
+    </Flex>
+  )
+}
+
+// ── Split message into text + code parts ──────────────────────────────────────
+interface MsgPart {
+  type: "text" | "code"
+  text: string
+  code: string
+  lang: string
+}
+
+function splitMessageParts(content: string): MsgPart[] {
+  const parts: MsgPart[] = []
+  const regex = /```([a-zA-Z0-9]*)\n?([\s\S]*?)```/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", text: content.slice(lastIndex, match.index), code: "", lang: "" })
+    }
+    parts.push({ type: "code", code: match[2].trim(), lang: match[1] || "code", text: "" })
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", text: content.slice(lastIndex), code: "", lang: "" })
+  }
+  return parts.length > 0 ? parts : [{ type: "text", text: content, code: "", lang: "" }]
+}
+
+// ── Guess target file from AI response ────────────────────────────────────────
+function guessFileFromResponse(text: string): string | null {
+  const m = text.match(/(?:editing|file|في|ملف)[:\s`"]*([a-zA-Z0-9/_.-]+\.(tsx?|jsx?|css|json|md))/i)
+  return m ? m[1] : null
+}
