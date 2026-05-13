@@ -388,6 +388,13 @@ const ALL_MODELS: ModelConfig[] = [
 
 export const NVIDIA_MODELS = ALL_MODELS
 export const DEFAULT_MODEL = "moonshotai/kimi-k2.6"
+export const DEFAULT_SYSTEM_PROMPT = "أنت Shrpo AI، مساعد ذكي متعدد الاستخدامات. أجب بدقة واحترافية."
+export const SAFE_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct"
+export const MODEL_FALLBACK_CHAIN: string[] = [
+  "moonshotai/kimi-k2.6",
+  "meta/llama-3.3-70b-instruct",
+  "meta/llama-3.1-8b-instruct",
+]
 export const MODEL_REGISTRY: Record<string, ModelConfig> = Object.fromEntries(
   ALL_MODELS.map((model) => [model.id, model])
 )
