@@ -98,7 +98,7 @@ const TOOLS: Tool[] = [
 ]
 
 export default function ToolsPage() {
-  const { selectedModel, settings } = useAppStore()
+  const { selectedModel, settings, apiKey } = useAppStore()
   const [activeTool, setActiveTool] = useState<Tool | null>(null)
   const [input, setInput] = useState("")
   const [extra, setExtra] = useState("")
@@ -107,7 +107,7 @@ export default function ToolsPage() {
   const [copied, setCopied] = useState(false)
 
   const runTool = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || !apiKey) return
     setLoading(true)
     setOutput("")
     try {
@@ -115,7 +115,8 @@ export default function ToolsPage() {
       const result = await chatOnce(
         [{ role: "user", content: prompt }],
         selectedModel,
-        settings.temperature
+        settings.temperature,
+        apiKey
       )
       setOutput(result)
     } catch (err: any) {

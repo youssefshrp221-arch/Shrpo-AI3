@@ -64,7 +64,7 @@ const STAGE_CONFIG: Record<string, { title: string; subtitle: string; model: str
 }
 
 export default function NovelStudio() {
-  const { settings } = useAppStore()
+  const { settings, apiKey } = useAppStore()
   const [currentStage, setCurrentStage] = useState<NovelStage>("idea")
   const [novelData, setNovelData] = useState<NovelData>({
     idea: "",
@@ -110,6 +110,7 @@ export default function NovelStudio() {
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: settings.temperature,
+          apiKey: apiKey!,
         }
       )
 
@@ -126,6 +127,7 @@ export default function NovelStudio() {
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: 0.7,
+          apiKey: apiKey!,
         }
       )
 
@@ -142,6 +144,7 @@ export default function NovelStudio() {
           onChunk: (chunk) => setStreamingText((prev) => prev + chunk),
           signal: new AbortController().signal,
           temperature: 0.6,
+          apiKey: apiKey!,
         }
       )
 

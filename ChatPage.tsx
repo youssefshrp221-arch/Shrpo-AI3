@@ -56,6 +56,7 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
     updateLocalMessage,
     setLocalMessages,
     updateLocalChat,
+    apiKey,
   } = useAppStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -218,6 +219,7 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
           },
           signal: controller.signal,
           temperature: settings.temperature,
+          apiKey: apiKey!,
         }
       )
 

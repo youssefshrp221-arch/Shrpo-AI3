@@ -53,7 +53,7 @@ import { v4 as uuidv4 } from "uuid"
 type Panel = "projects" | "editor" | "characters" | "world"
 
 export default function WritingStudio() {
-  const { selectedModel, settings, activeWritingProjectId, setActiveWritingProjectId } = useAppStore()
+  const { selectedModel, settings, activeWritingProjectId, setActiveWritingProjectId, apiKey } = useAppStore()
 
   const [projects, setProjects] = useState<WritingProject[]>([])
   const [activeProject, setActiveProject] = useState<WritingProject | null>(null)
@@ -195,6 +195,7 @@ export default function WritingStudio() {
           onChunk: () => {},
           signal: new AbortController().signal,
           temperature: settings.temperature,
+          apiKey: apiKey!,
         }
       )
       if (action === "continue") {

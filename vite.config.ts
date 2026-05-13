@@ -20,6 +20,7 @@ export default defineConfig({
       "@/components/ChatInput": resolve(__dirname, "ChatInput.tsx"),
       "@/components/Sidebar": resolve(__dirname, "Sidebar.tsx"),
       "@/components/ModelSelector/ModelSelector": resolve(__dirname, "ModelSelector.tsx"),
+      "@/pages/ApiKeyScreen": resolve(__dirname, "ApiKeyScreen.tsx"),
       "@/pages/MainLayout": resolve(__dirname, "MainLayout.tsx"),
       "@/pages/ChatPage": resolve(__dirname, "ChatPage.tsx"),
       "@/pages/WritingStudio": resolve(__dirname, "WritingStudio.tsx"),

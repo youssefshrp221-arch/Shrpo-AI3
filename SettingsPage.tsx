@@ -27,15 +27,21 @@ import {
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { toaster } from "@/components/ui/toaster"
+import { LuKey } from "react-icons/lu"
 
 export default function SettingsPage() {
-  const { settings, updateSettings } = useAppStore()
+  const { settings, updateSettings, clearApiKey, apiKey } = useAppStore()
   const [saved, setSaved] = useState(false)
 
   const handleSaveSettings = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     toaster.create({ title: "Settings saved", type: "success" })
+  }
+
+  const handleChangeApiKey = () => {
+    clearApiKey()
+    toaster.create({ title: "API Key cleared", description: "Please enter your new NVIDIA API key", type: "info" })
   }
 
   const fontOptions = ["sm", "md", "lg"]
@@ -217,20 +223,38 @@ export default function SettingsPage() {
             </VStack>
           </SettingsCard>
 
-          <Button
-            onClick={handleSaveSettings}
-            bg={saved ? "rgba(16,185,129,0.2)" : "linear-gradient(135deg, #6366f1, #8b5cf6)"}
-            color={saved ? "green.400" : "white"}
-            borderRadius="xl"
-            border={saved ? "1px solid" : "none"}
-            borderColor={saved ? "rgba(16,185,129,0.3)" : "transparent"}
-            _hover={{ shadow: saved ? "none" : "0 0 20px rgba(99,102,241,0.4)" }}
-            transition="all 0.3s"
-            h="11"
-          >
-            <Icon as={saved ? LuCheck : LuSave} mr="2" boxSize="14px" />
-            {saved ? "Settings Saved!" : "Save Settings"}
-          </Button>
+          <HStack gap="3">
+            <Button
+              onClick={handleSaveSettings}
+              flex="1"
+              bg={saved ? "rgba(16,185,129,0.2)" : "linear-gradient(135deg, #6366f1, #8b5cf6)"}
+              color={saved ? "green.400" : "white"}
+              borderRadius="xl"
+              border={saved ? "1px solid" : "none"}
+              borderColor={saved ? "rgba(16,185,129,0.3)" : "transparent"}
+              _hover={{ shadow: saved ? "none" : "0 0 20px rgba(99,102,241,0.4)" }}
+              transition="all 0.3s"
+              h="11"
+            >
+              <Icon as={saved ? LuCheck : LuSave} mr="2" boxSize="14px" />
+              {saved ? "Settings Saved!" : "Save Settings"}
+            </Button>
+            <Button
+              onClick={handleChangeApiKey}
+              bg="rgba(239,68,68,0.1)"
+              color="red.400"
+              border="1px solid"
+              borderColor="rgba(239,68,68,0.2)"
+              borderRadius="xl"
+              _hover={{ bg: "rgba(239,68,68,0.2)", borderColor: "rgba(239,68,68,0.4)" }}
+              transition="all 0.2s"
+              h="11"
+              px="4"
+            >
+              <Icon as={LuKey} mr="2" boxSize="14px" />
+              Change API Key
+            </Button>
+          </HStack>
         </VStack>
       </Box>
     </Box>
