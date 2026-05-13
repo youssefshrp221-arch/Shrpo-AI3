@@ -33,5 +33,13 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5000,
     allowedHosts: true,
+    proxy: {
+      "/api/chat": {
+        target: "https://integrate.api.nvidia.com",
+        changeOrigin: true,
+        rewrite: () => "/v1/chat/completions",
+        secure: true,
+      },
+    },
   },
 })

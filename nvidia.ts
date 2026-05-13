@@ -1,4 +1,5 @@
-const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+// Proxied through Vite dev server to avoid CORS — see vite.config.ts server.proxy
+const NVIDIA_BASE_URL = "/api/chat"
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system"

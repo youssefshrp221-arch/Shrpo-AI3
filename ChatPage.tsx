@@ -258,7 +258,7 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
           updateLocalMessage(activeChatId, assistantId, "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى.")
           toaster.create({
             title: "فشل الاتصال",
-            description: "تعذّر الوصول للموديل. تحقق من إعدادات Supabase وNVIDIA API.",
+            description: "تعذّر الوصول للموديل. تحقق من صحة NVIDIA API Key.",
             type: "error",
           })
         }
