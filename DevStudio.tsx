@@ -12,6 +12,7 @@ import {
   Icon,
   Spinner,
   useBreakpointValue,
+  Input,
 } from "@chakra-ui/react"
 import {
   LuTerminal,
@@ -28,16 +29,15 @@ import {
   LuSparkles,
   LuPanelLeft,
   LuCode,
+  LuUpload,
+  LuImage,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { toaster } from "@/components/ui/toaster"
 
-interface FileItem {
-  path: string
-  isOpen?: boolean
-}
-
 const CODER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+const VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
+const MODEL_CONFIG_PATH = "index.ts"
 
 type PanelId = "explorer" | "editor" | "ai"
 
@@ -57,19 +57,18 @@ export default function DevStudio() {
   const [aiLoading, setAiLoading] = useState(false)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [openFiles, setOpenFiles] = useState<string[]>([])
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageContextLoading, setImageContextLoading] = useState(false)
 
-  // Load file list
   const loadFiles = useCallback(async () => {
     try {
       const res = await fetch("/api/dev/files", {
         headers: { "x-user-email": userEmail || "" },
       })
       const data = await res.json()
-      if (data.files) {
-        setFiles(data.files.sort())
-      } else if (data.error) {
-        toaster.create({ title: data.error, type: "error" })
-      }
+      if (data.files) setFiles(data.files.sort())
+      else if (data.error) toaster.create({ title: data.error, type: "error" })
     } catch (err) {
       console.error("Failed to load files", err)
     }
@@ -79,7 +78,6 @@ export default function DevStudio() {
     loadFiles()
   }, [loadFiles])
 
-  // Open a file
   const openFile = async (filePath: string) => {
     setLoadingFile(true)
     try {
@@ -94,26 +92,23 @@ export default function DevStudio() {
         setIsDirty(false)
         setAiResponse("")
         setPendingCode(null)
-        if (!openFiles.includes(filePath)) {
-          setOpenFiles((prev) => [...prev, filePath])
-        }
+        if (!openFiles.includes(filePath)) setOpenFiles((prev) => [...prev, filePath])
         if (isMobile) setActivePanel("editor")
       }
-    } catch (err) {
+    } catch {
       toaster.create({ title: "Error loading file", type: "error" })
     } finally {
       setLoadingFile(false)
     }
   }
 
-  // Send AI request
   const runAI = async () => {
     if (!aiPrompt.trim() || !activeFile) return
     setAiLoading(true)
     setAiResponse("")
     setPendingCode(null)
 
-    const system = `You are Shrpo Dev AI. You are editing the file: ${activeFile}.\n\nCurrent file content:\n\n\`\`\`${getLanguage(activeFile)}\n${fileContent}\n\`\`\`\n\nRules:\n- Only return the COMPLETE updated file code (no explanations outside the code unless necessary).\n- Include ALL unchanged parts as they are.\n- If the user's request is a bug fix, carefully identify and fix the issue.\n- If the user asks for a feature, add it without breaking existing code.\n- Wrap ONLY the final code output in a markdown code block with the language tag.`
+    const system = `You are Shrpo Dev AI. You are editing the file: ${activeFile}.\n\nCurrent file content:\n\n\`\`\`${getLanguage(activeFile)}\n${fileContent}\n\`\`\`\n\nRules:\n- Only return the COMPLETE updated file code (no explanations outside the code unless necessary).\n- Include ALL unchanged parts as they are.\n- If the user's request is a bug fix, carefully identify and fix the issue.\n- If the user's request is a feature, add it without breaking existing code.\n- Wrap ONLY the final code output in a markdown code block with the language tag.`
 
     try {
       const response = await fetch("/api/dev/generate", {
@@ -144,10 +139,8 @@ export default function DevStudio() {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
-
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
-
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed || trimmed === "data: [DONE]") continue
@@ -164,13 +157,8 @@ export default function DevStudio() {
         }
       }
 
-      // Try to extract code block from response
       const codeBlockMatch = fullText.match(/```(?:[a-zA-Z0-9]*)?\n?([\s\S]*?)```$/)
-      if (codeBlockMatch) {
-        setPendingCode(codeBlockMatch[1].trim())
-      } else {
-        setPendingCode(fullText.trim())
-      }
+      setPendingCode(codeBlockMatch ? codeBlockMatch[1].trim() : fullText.trim())
     } catch (err: any) {
       toaster.create({ title: "AI Error", description: err.message, type: "error" })
     } finally {
@@ -178,7 +166,87 @@ export default function DevStudio() {
     }
   }
 
-  // Apply AI-generated code
+  const handleImageUpload = async (file: File) => {
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+    setImageContextLoading(true)
+    try {
+      const base64 = await fileToDataUrl(file)
+      const response = await fetch("/api/dev/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": userEmail || "",
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "system",
+              content: `You are a vision assistant helping extract NVIDIA model IDs from screenshots. Read the image carefully and return ONLY model IDs exactly as written, case-sensitive, matching NVIDIA model names. Do not invent or normalize names. Then return a short JSON object with keys: modelIds (array of strings), notes (string).`,
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Extract all NVIDIA model IDs visible in this image." },
+                { type: "image_url", image_url: { url: base64 } },
+              ],
+            },
+          ],
+          model: VISION_MODEL,
+        }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const text = await response.text()
+      const extracted = extractModelIds(text)
+      if (!extracted.length) {
+        toaster.create({ title: "No model IDs found", type: "info" })
+        return
+      }
+      await updateModelRegistry(extracted)
+      toaster.create({
+        title: "Image context updated",
+        description: `Detected and updated: ${extracted.join(", ")}`,
+        type: "success",
+      })
+    } catch (err: any) {
+      toaster.create({ title: "Image Context Error", description: err.message, type: "error" })
+    } finally {
+      setImageContextLoading(false)
+    }
+  }
+
+  const updateModelRegistry = async (modelIds: string[]) => {
+    const res = await fetch(`/api/dev/file?path=${encodeURIComponent(MODEL_CONFIG_PATH)}`, {
+      headers: { "x-user-email": userEmail || "" },
+    })
+    const data = await res.json()
+    if (!data.content) throw new Error("Could not load model registry")
+
+    const current = data.content as string
+    const additions = modelIds
+      .filter((id) => !current.includes(`id: \"${id}\"`))
+      .map((id) => `  {\n    id: \"${id}\",\n    name: \"${id.split(\"/\").pop() || id}\",\n    provider: \"NVIDIA\",\n    type: \"general\",\n    size: \"-\",\n    description: \"Auto-discovered from image context\",\n    badges: [\"new\"],\n  },\n`)
+
+    if (!additions.length) return
+
+    const marker = "const ALL_MODELS: ModelConfig[] = [\n"
+    const idx = current.indexOf(marker)
+    if (idx === -1) throw new Error("Model registry marker not found")
+    const insertAt = idx + marker.length
+    const updated = current.slice(0, insertAt) + additions.join("") + current.slice(insertAt)
+
+    const saveRes = await fetch("/api/dev/apply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-email": userEmail || "",
+      },
+      body: JSON.stringify({ path: MODEL_CONFIG_PATH, content: updated }),
+    })
+    const saveData = await saveRes.json()
+    if (!saveData.success) throw new Error(saveData.error || "Failed to update registry")
+  }
+
   const applyChanges = async () => {
     if (!pendingCode || !activeFile) return
     setFileContent(pendingCode)
@@ -187,7 +255,6 @@ export default function DevStudio() {
     toaster.create({ title: "Changes applied to editor", type: "info" })
   }
 
-  // Save file
   const saveFile = async () => {
     if (!activeFile || !isDirty) return
     try {
@@ -226,9 +293,8 @@ export default function DevStudio() {
     setOpenFiles((prev) => prev.filter((f) => f !== filePath))
     if (activeFile === filePath) {
       const remaining = openFiles.filter((f) => f !== filePath)
-      if (remaining.length > 0) {
-        openFile(remaining[remaining.length - 1])
-      } else {
+      if (remaining.length > 0) openFile(remaining[remaining.length - 1])
+      else {
         setActiveFile(null)
         setFileContent("")
         setOriginalContent("")
@@ -236,7 +302,6 @@ export default function DevStudio() {
     }
   }
 
-  // Group files by folder
   const fileTree: Record<string, string[]> = {}
   files.forEach((f) => {
     const parts = f.split("/")
@@ -246,395 +311,63 @@ export default function DevStudio() {
   })
 
   const panelBtn = (id: PanelId, label: string, icon: any, count?: number | string) => (
-    <Button
-      key={id}
-      size="sm"
-      flex="1"
-      variant={activePanel === id ? "solid" : "ghost"}
-      colorScheme={activePanel === id ? "brand" : undefined}
-      bg={activePanel === id ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "transparent"}
-      color={activePanel === id ? "white" : "gray.500"}
-      borderRadius="0"
-      borderTop={activePanel === id ? "2px solid" : "none"}
-      borderColor="brand.400"
-      py="3"
-      h="auto"
-      onClick={() => setActivePanel(id)}
-    >
-      <VStack gap="0.5">
-        <Icon as={icon} boxSize="18px" />
-        <Text fontSize="2xs">{label}</Text>
-        {count !== undefined && (
-          <Text fontSize="2xs" opacity={0.7}>{count}</Text>
-        )}
-      </VStack>
+    <Button key={id} size="sm" flex="1" variant={activePanel === id ? "solid" : "ghost"} colorScheme={activePanel === id ? "brand" : undefined} bg={activePanel === id ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "transparent"} color={activePanel === id ? "white" : "gray.500"} borderRadius="0" borderTop={activePanel === id ? "2px solid" : "none"} borderColor="brand.400" py="3" onClick={() => setActivePanel(id)}>
+      <Icon as={icon} mr="1.5" boxSize="12px" />
+      {label}
+      {count !== undefined && <Badge ml="1.5" colorPalette="gray" variant="subtle">{count}</Badge>}
     </Button>
   )
 
   return (
-    <Box h="100%" bg="#0a0a0f" display="flex" flexDirection="column" overflow="hidden">
-      {/* Header */}
-      <Box
-        px={{ base: "3", md: "4" }}
-        py="2"
-        borderBottom="1px solid"
-        borderColor="rgba(99,102,241,0.15)"
-        bg="rgba(10,10,15,0.95)"
-        flexShrink={0}
-      >
-        <HStack gap="2" alignItems="center" flexWrap="wrap">
-          <Icon as={LuTerminal} boxSize="18px" color="brand.400" />
-          <Text fontSize="sm" fontWeight="700" color="white">
-            Dev Studio
-          </Text>
-          <Badge size="sm" colorPalette="brand" variant="subtle" fontSize="2xs">
-            {CODER_MODEL}
-          </Badge>
-          <Badge size="sm" colorPalette="green" variant="subtle" fontSize="2xs">
-            Active
-          </Badge>
-          <HStack ml="auto" gap="2">
-            <Button
-              size="xs"
-              onClick={loadFiles}
-              variant="ghost"
-              color="gray.400"
-              _hover={{ color: "white", bg: "rgba(99,102,241,0.1)" }}
-            >
-              <Icon as={LuRefreshCw} boxSize="12px" />
+    <Flex h="100%" bg="#0a0a0f" color="white" overflow="hidden" direction="column">
+      <Box p="3" borderBottom="1px solid" borderColor="rgba(99,102,241,0.15)">
+        <HStack justify="space-between" mb="3">
+          <HStack gap="2">
+            <Icon as={LuTerminal} color="brand.400" boxSize="18px" />
+            <Text fontWeight="700">Dev Studio</Text>
+          </HStack>
+          <HStack gap="2">
+            <Button leftIcon={<LuUpload />} size="sm" onClick={() => document.getElementById("dev-image-upload")?.click()}>
+              Upload Image
             </Button>
+            <Input id="dev-image-upload" type="file" accept="image/*" display="none" onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])} />
+            {imageContextLoading && <Spinner size="sm" />}
           </HStack>
         </HStack>
+        {imagePreview && (
+          <HStack gap="3" mb="2">
+            <Box as="img" src={imagePreview} alt="uploaded" maxH="80px" borderRadius="md" />
+            <Text fontSize="xs" color="gray.400">Image Context enabled for {imageFile?.name}</Text>
+          </HStack>
+        )}
       </Box>
-
-      {/* Body */}
-      <Flex flex="1" overflow="hidden" direction={{ base: "column", md: "row" }}>
-        {/* File Explorer */}
-        <Box
-          w={{ base: "full", md: "220px" }}
-          flexShrink={0}
-          borderRight={{ base: "none", md: "1px solid" }}
-          borderBottom={{ base: "1px solid", md: "none" }}
-          borderColor="rgba(99,102,241,0.1)"
-          bg="rgba(10,10,15,0.6)"
-          overflowY="auto"
-          py="2"
-          display={{ base: isMobile && activePanel !== "explorer" ? "none" : "block", md: "block" }}
-        >
-          <Text fontSize="2xs" color="gray.600" fontWeight="700" px="3" py="1" letterSpacing="0.08em" textTransform="uppercase">
-            Explorer
-          </Text>
-          {Object.entries(fileTree).map(([folder, folderFiles]) => (
-            <Box key={folder} mb="1">
-              <HStack px="3" py="1" gap="1.5">
-                <Icon as={LuFolder} boxSize="10px" color="gray.600" />
-                <Text fontSize="xs" color="gray.500" fontWeight="600">{folder}</Text>
-              </HStack>
-              {folderFiles.map((f) => {
-                const fileName = f.split("/").pop() || f
-                const isActive = activeFile === f
-                return (
-                  <Box
-                    key={f}
-                    display="flex"
-                    alignItems="center"
-                    gap="1.5"
-                    px="5"
-                    py="1.5"
-                    cursor="pointer"
-                    borderRadius="md"
-                    color={isActive ? "brand.300" : "gray.500"}
-                    bg={isActive ? "rgba(99,102,241,0.12)" : "transparent"}
-                    _hover={{ bg: "rgba(99,102,241,0.08)" }}
-                    onClick={() => openFile(f)}
-                  >
-                    <Icon as={LuFileCode} boxSize="10px" color={isActive ? "brand.400" : "gray.600"} />
-                    <Text fontSize="xs" fontWeight={isActive ? "600" : "400"} noOfLines={1}>
-                      {fileName}
-                    </Text>
-                  </Box>
-                )
-              })}
-            </Box>
-          ))}
-        </Box>
-
-        {/* Editor + AI Panel */}
-        <Flex flex="1" direction="column" overflow="hidden"
-          display={{ base: isMobile && activePanel === "explorer" ? "none" : "flex", md: "flex" }}
-        >
-          {/* Tabs */}
-          {openFiles.length > 0 && (
-            <HStack
-              gap="0"
-              borderBottom="1px solid"
-              borderColor="rgba(99,102,241,0.1)"
-              overflowX="auto"
-              flexShrink={0}
-            >
-              {openFiles.map((f) => {
-                const name = f.split("/").pop() || f
-                const isActive = activeFile === f
-                const modified = isActive && isDirty
-                return (
-                  <HStack
-                    key={f}
-                    px="3"
-                    py="1.5"
-                    gap="1.5"
-                    cursor="pointer"
-                    borderRight="1px solid"
-                    borderColor="rgba(99,102,241,0.1)"
-                    bg={isActive ? "rgba(99,102,241,0.08)" : "transparent"}
-                    color={isActive ? "brand.300" : "gray.500"}
-                    _hover={{ bg: "rgba(99,102,241,0.06)" }}
-                    onClick={() => openFile(f)}
-                    flexShrink={0}
-                  >
-                    <Icon as={LuFileCode} boxSize="10px" />
-                    <Text fontSize="2xs" fontWeight={isActive ? "600" : "400"} whiteSpace="nowrap">
-                      {name}{modified ? " •" : ""}
-                    </Text>
-                    <Box
-                      as="span"
-                      display="inline-flex"
-                      alignItems="center"
-                      justifyContent="center"
-                      w="14px"
-                      h="14px"
-                      borderRadius="sm"
-                      cursor="pointer"
-                      _hover={{ bg: "rgba(239,68,68,0.2)", color: "red.400" }}
-                      onClick={(e) => { e.stopPropagation(); closeFile(f) }}
-                    >
-                      <Icon as={LuX} boxSize="10px" />
-                    </Box>
-                  </HStack>
-                )
-              })}
-            </HStack>
-          )}
-
-          <Flex flex="1" overflow="hidden" direction={{ base: "column", md: "row" }}>
-            {/* Editor */}
-            <Box
-              flex="1"
-              overflow="hidden"
-              position="relative"
-              display={{ base: isMobile && activePanel !== "editor" ? "none" : "block", md: "block" }}
-            >
-              {activeFile ? (
-                <>
-                  <Editor
-                    height="100%"
-                    language={getLanguage(activeFile)}
-                    value={fileContent}
-                    onChange={(val) => {
-                      setFileContent(val || "")
-                      setIsDirty(val !== originalContent)
-                    }}
-                    theme="vs-dark"
-                    options={{
-                      fontSize: isMobile ? 12 : 13,
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                      tabSize: 2,
-                      wordWrap: "on",
-                      scrollbar: { alwaysConsumeMouseWheel: false },
-                    }}
-                    loading={
-                      <Box display="flex" alignItems="center" justifyContent="center" h="100%">
-                        <Spinner size="sm" color="brand.400" />
-                      </Box>
-                    }
-                  />
-                  {loadingFile && (
-                    <Box
-                      position="absolute"
-                      inset={0}
-                      bg="rgba(10,10,15,0.8)"
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="center"
-                      zIndex={10}
-                    >
-                      <Spinner size="md" color="brand.400" />
-                    </Box>
-                  )}
-                  {/* Save bar */}
-                  {isDirty && (
-                    <Box
-                      position="absolute"
-                      bottom="0"
-                      left="0"
-                      right="0"
-                      px="4"
-                      py="2"
-                      bg="rgba(99,102,241,0.1)"
-                      borderTop="1px solid"
-                      borderColor="rgba(99,102,241,0.2)"
-                      display="flex"
-                      alignItems="center"
-                      gap="3"
-                      zIndex={20}
-                    >
-                      <Icon as={LuTriangleAlert} boxSize="14px" color="yellow.400" />
-                      <Text fontSize="xs" color="gray.300">Unsaved changes</Text>
-                      <Button
-                        size="xs"
-                        ml="auto"
-                        bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
-                        color="white"
-                        _hover={{ bg: "linear-gradient(135deg, #4f46e5, #7c3aed)" }}
-                        onClick={saveFile}
-                      >
-                        <Icon as={LuSave} boxSize="12px" mr="1" />
-                        Save
-                      </Button>
-                    </Box>
-                  )}
-                </>
-              ) : (
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="center"
-                  h="100%"
-                  flexDirection="column"
-                  gap="3"
-                >
-                  <Icon as={LuTerminal} boxSize="32px" color="gray.700" />
-                  <Text color="gray.600" fontSize="sm">Select a file from the explorer</Text>
-                </Box>
-              )}
-            </Box>
-
-            {/* AI Panel */}
-            <Box
-              w={{ base: "full", md: "340px" }}
-              flexShrink={0}
-              borderLeft={{ base: "none", md: "1px solid" }}
-              borderTop={{ base: "1px solid", md: "none" }}
-              borderColor="rgba(99,102,241,0.1)"
-              bg="rgba(10,10,15,0.6)"
-              display={{ base: isMobile && activePanel !== "ai" ? "none" : "flex", md: "flex" }}
-              flexDirection="column"
-            >
-              <Box px="3" py="2" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)">
-                <HStack gap="2">
-                  <Icon as={LuSparkles} boxSize="14px" color="brand.400" />
-                  <Text fontSize="xs" fontWeight="700" color="white">
-                    AI Developer
-                  </Text>
-                  <Badge size="sm" colorPalette="brand" variant="subtle" fontSize="2xs">
-                    Qwen Coder
-                  </Badge>
-                </HStack>
-              </Box>
-
-              <Box flex="1" overflowY="auto" px="3" py="2">
-                {/* Prompt input */}
-                <VStack gap="2" align="stretch">
-                  <Textarea
-                    placeholder="e.g. Add a new button to the header, fix the scroll issue, refactor this component..."
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    fontSize="xs"
-                    bg="rgba(10,10,15,0.8)"
-                    border="1px solid"
-                    borderColor="rgba(99,102,241,0.2)"
-                    color="white"
-                    minH={{ base: "60px", md: "80px" }}
-                    _placeholder={{ color: "gray.600" }}
-                    _focus={{ borderColor: "brand.500", outline: "none" }}
-                  />
-                  <Button
-                    size={{ base: "md", md: "sm" }}
-                    w="full"
-                    bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
-                    color="white"
-                    _hover={{ bg: "linear-gradient(135deg, #4f46e5, #7c3aed)" }}
-                    onClick={runAI}
-                    loading={aiLoading}
-                    loadingText="Coding..."
-                    disabled={!aiPrompt.trim() || !activeFile}
-                  >
-                    <Icon as={LuSend} boxSize="12px" mr="1.5" />
-                    Generate Code
-                  </Button>
-                </VStack>
-
-                {/* AI Response */}
-                {aiResponse && (
-                  <Box mt="3">
-                    <HStack gap="2" mb="1.5">
-                      <Icon as={LuSparkles} boxSize="12px" color="brand.400" />
-                      <Text fontSize="2xs" color="gray.500" fontWeight="600" textTransform="uppercase" letterSpacing="0.05em">
-                        AI Output
-                      </Text>
-                    </HStack>
-                    <Box
-                      bg="rgba(10,10,15,0.9)"
-                      border="1px solid"
-                      borderColor="rgba(99,102,241,0.15)"
-                      borderRadius="md"
-                      p="2"
-                      fontSize="xs"
-                      color="gray.300"
-                      maxH={{ base: "160px", md: "200px" }}
-                      overflowY="auto"
-                      whiteSpace="pre-wrap"
-                      fontFamily="mono"
-                    >
-                      {aiResponse}
-                    </Box>
-
-                    {pendingCode && (
-                      <Button
-                        size={{ base: "sm", md: "xs" }}
-                        mt="2"
-                        w="full"
-                        bg="rgba(34,197,94,0.2)"
-                        color="green.300"
-                        border="1px solid"
-                        borderColor="rgba(34,197,94,0.3)"
-                        _hover={{ bg: "rgba(34,197,94,0.3)" }}
-                        onClick={() => { applyChanges(); if (isMobile) setActivePanel("editor") }}
-                      >
-                        <Icon as={LuPlay} boxSize="12px" mr="1" />
-                        Apply Changes
-                      </Button>
-                    )}
-                  </Box>
-                )}
-              </Box>
-
-              <Box px="3" py="2" borderTop="1px solid" borderColor="rgba(99,102,241,0.1)">
-                <Text fontSize="2xs" color="gray.600">
-                  Using <strong style={{ color: "#818cf8" }}>Qwen3 Coder 480B</strong> via NVIDIA NIM
-                </Text>
-              </Box>
-            </Box>
-          </Flex>
-        </Flex>
-      </Flex>
-
-      {/* Mobile bottom nav */}
-      {isMobile && (
-        <HStack
-          borderTop="1px solid"
-          borderColor="rgba(99,102,241,0.15)"
-          bg="rgba(10,10,15,0.95)"
-          flexShrink={0}
-          spacing="0"
-          h="auto"
-        >
-          {panelBtn("explorer", "Files", LuPanelLeft, Object.values(fileTree).flat().length)}
-          {panelBtn("editor", "Editor", LuCode, openFiles.length)}
-          {panelBtn("ai", "AI", LuSparkles)}
+      <Box p="3" flex="1" overflow="auto">
+        <Text fontSize="sm" color="gray.400" mb="2">{CODER_MODEL}</Text>
+        <Textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} placeholder="Describe the code change or use Image Context..." mb="3" />
+        <HStack gap="2" mb="4">
+          <Button onClick={runAI} isLoading={aiLoading} leftIcon={<LuSend />}>Generate</Button>
+          <Button onClick={applyChanges} isDisabled={!pendingCode} leftIcon={<LuCheck />}>Apply</Button>
+          <Button onClick={saveFile} isDisabled={!isDirty} leftIcon={<LuSave />}>Update Site</Button>
         </HStack>
-      )}
-    </Box>
+        {aiResponse && <Box whiteSpace="pre-wrap" fontSize="sm" color="gray.300" mb="4">{aiResponse}</Box>}
+        <Editor height="520px" language={getLanguage(activeFile || "index.ts")} value={fileContent} onChange={(v) => { setFileContent(v || ""); setIsDirty(v !== originalContent) }} theme="vs-dark" />
+      </Box>
+    </Flex>
   )
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error("Failed to read image"))
+    reader.readAsDataURL(file)
+  })
+}
+
+function extractModelIds(text: string) {
+  const ids = new Set<string>()
+  const regex = /(?:meta|nvidia|mistralai|deepseek-ai|moonshotai|openai|google|stepfun-ai|minimaxai|bytedance|stockmark|abacusai|sarvamai|z-ai)\/[a-z0-9._-]+/gi
+  for (const match of text.match(regex) || []) ids.add(match)
+  return [...ids]
 }
