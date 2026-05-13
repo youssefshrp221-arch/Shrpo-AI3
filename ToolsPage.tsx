@@ -28,6 +28,8 @@ import { useAppStore } from "@/store/appStore"
 import { chatOnce } from "@/lib/nvidia"
 import { toaster } from "@/components/ui/toaster"
 
+const SUMMARY_MODEL = "deepseek-ai/deepseek-v4-flash"
+
 interface Tool {
   id: string
   icon: any
@@ -112,9 +114,10 @@ export default function ToolsPage() {
     setOutput("")
     try {
       const prompt = activeTool!.action + input + (extra ? `\n\nTarget: ${extra}` : "")
+      const model = activeTool!.id === "summarizer" ? SUMMARY_MODEL : selectedModel
       const result = await chatOnce(
         [{ role: "user", content: prompt }],
-        selectedModel,
+        model,
         settings.temperature
       )
       setOutput(result)

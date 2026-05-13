@@ -71,7 +71,7 @@ interface NovelSettings {
 const STAGE_MODELS = {
   outline: "meta/llama-3.1-8b-instruct",      // Fast for planning
   beats: "meta/llama-3.1-70b-instruct",       // Better for detailed beats
-  writing: "nvidia/llama-3.1-nemotron-70b-instruct", // Best for creative writing
+  writing: "moonshotai/kimi-k2.6",              // Best for creative writing (Kimi)
 }
 
 export default function NovelStudio() {

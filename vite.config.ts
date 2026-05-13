@@ -27,6 +27,7 @@ export default defineConfig({
       "@/pages/NovelStudio": resolve(__dirname, "NovelStudio.tsx"),
       "@/pages/ToolsPage": resolve(__dirname, "ToolsPage.tsx"),
       "@/pages/SettingsPage": resolve(__dirname, "SettingsPage.tsx"),
+      "@/pages/DevStudio": resolve(__dirname, "DevStudio.tsx"),
     },
   },
   server: {

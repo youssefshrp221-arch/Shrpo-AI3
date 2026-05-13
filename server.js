@@ -1,4 +1,5 @@
 import express from "express"
+import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -60,7 +61,136 @@ app.post("/api/chat", async (req, res) => {
 const distPath = path.join(__dirname, "dist")
 app.use(express.static(distPath))
 
-app.get("/{*path}", (_req, res) => {
+// ── Dev Studio API ──────────────────────────────────────────────────────
+
+// List project files (safe filter)
+const ALLOWED_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".css", ".json", ".html", ".md"]
+const BLOCKED_PATHS = ["node_modules", ".git", ".local", "dist", ".cache", "attached_assets"]
+
+function isBlocked(filePath) {
+  const normalized = path.normalize(filePath)
+  return BLOCKED_PATHS.some((b) => normalized.includes(b))
+}
+
+app.get("/api/dev/files", (_req, res) => {
+  try {
+    const files = []
+    function walk(dir, prefix = "") {
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+        const full = path.join(dir, entry.name)
+        if (isBlocked(relative)) continue
+        if (entry.isDirectory()) {
+          walk(full, relative)
+        } else if (ALLOWED_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) {
+          files.push(relative)
+        }
+      }
+    }
+    walk(__dirname)
+    res.json({ files })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Read a specific file
+app.get("/api/dev/file", (req, res) => {
+  const filePath = req.query.path
+  if (!filePath || typeof filePath !== "string") {
+    return res.status(400).json({ error: "Missing path" })
+  }
+  const target = path.join(__dirname, filePath)
+  if (isBlocked(filePath) || !ALLOWED_EXTENSIONS.includes(path.extname(target).toLowerCase())) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+  try {
+    const content = fs.readFileSync(target, "utf-8")
+    res.json({ content })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Write a specific file (Apply Changes)
+app.post("/api/dev/apply", (req, res) => {
+  const { path: filePath, content } = req.body
+  if (!filePath || typeof filePath !== "string" || typeof content !== "string") {
+    return res.status(400).json({ error: "Missing path or content" })
+  }
+  const target = path.join(__dirname, filePath)
+  if (isBlocked(filePath) || !ALLOWED_EXTENSIONS.includes(path.extname(target).toLowerCase())) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+  try {
+    fs.writeFileSync(target, content, "utf-8")
+    res.json({ success: true, message: "File updated" })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Generate code using hardcoded coder model
+app.post("/api/dev/generate", async (req, res) => {
+  const apiKey = process.env.NVIDIA_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({ error: "Server not configured — NVIDIA API key missing" })
+  }
+  const { messages } = req.body
+  if (!Array.isArray(messages)) {
+    return res.status(400).json({ error: "messages array required" })
+  }
+
+  const model = "qwen/qwen3-coder-480b-a35b-instruct"
+
+  try {
+    const upstream = await fetch(
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.2,
+          max_tokens: 8192,
+          stream: true,
+        }),
+      }
+    )
+
+    if (!upstream.ok) {
+      let errBody = { error: `NVIDIA API error: ${upstream.status}` }
+      try { errBody = await upstream.json() } catch {}
+      return res.status(upstream.status).json(errBody)
+    }
+
+    const contentType = upstream.headers.get("content-type") || "text/event-stream"
+    res.setHeader("Content-Type", contentType)
+    res.setHeader("Cache-Control", "no-cache")
+    res.setHeader("X-Accel-Buffering", "no")
+    res.setHeader("Connection", "keep-alive")
+
+    const reader = upstream.body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      res.write(value)
+    }
+    res.end()
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message })
+    }
+  }
+})
+
+app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(distPath, "index.html"))
 })
 

@@ -27,6 +27,7 @@ import {
   LuChevronDown,
   LuMenu,
   LuX,
+  LuTerminal,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId } from "@/lib/supabase"
@@ -45,6 +46,8 @@ const navItems = [
   { icon: LuWrench, label: "AI Tools", view: "tools" as const },
   { icon: LuSettings, label: "Settings", view: "settings" as const },
 ]
+
+const devNavItem = { icon: LuTerminal, label: "Dev Studio", view: "dev" as const }
 
 export default function Sidebar({ onNewChat }: SidebarProps) {
   const {
@@ -191,6 +194,17 @@ export default function Sidebar({ onNewChat }: SidebarProps) {
                 <Text fontSize="sm" fontWeight={activeView === item.view ? "600" : "500"}>{item.label}</Text>
               </Box>
             ))}
+            <Box
+              display="flex" alignItems="center" gap="3"
+              px="3" py="2.5" borderRadius="lg" cursor="pointer"
+              color={activeView === "dev" ? "brand.300" : "gray.400"}
+              bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
+              _hover={{ bg: "rgba(99,102,241,0.08)" }}
+              onClick={() => { setActiveView("dev"); setSidebarOpen(false) }}
+            >
+              <Icon as={devNavItem.icon} boxSize="16px" />
+              <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "500"}>{devNavItem.label}</Text>
+            </Box>
           </VStack>
         </Box>
       </Box>
@@ -251,6 +265,18 @@ export default function Sidebar({ onNewChat }: SidebarProps) {
             )}
           </Box>
         ))}
+        <Box
+          display="flex" alignItems="center" gap="2.5"
+          px="3" py="2" borderRadius="xl" cursor="pointer"
+          color={activeView === "dev" ? "brand.300" : "gray.500"}
+          bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
+          _hover={{ bg: "rgba(99,102,241,0.1)" }}
+          onClick={() => setActiveView("dev")}
+          transition="all 0.15s" mb="0.5"
+        >
+          <Icon as={devNavItem.icon} boxSize="15px" />
+          <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "400"}>{devNavItem.label}</Text>
+        </Box>
       </Box>
 
       <Separator borderColor="rgba(99,102,241,0.1)" mx="3" />
