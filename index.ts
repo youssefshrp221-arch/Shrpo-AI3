@@ -26,6 +26,8 @@ export interface Attachment {
   url: string
   size?: number
   preview?: string
+  base64?: string      // base64 data URL for images (for API transmission)
+  fileText?: string    // extracted text content (for text/PDF files)
 }
 
 export interface WritingProject {

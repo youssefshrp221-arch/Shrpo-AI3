@@ -32,7 +32,7 @@ html, body {
   padding: 0;
   background: #0a0a0f;
   color: #e2e8f0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Cairo', 'Inter', system-ui, sans-serif;
   overflow-x: hidden;
 }
 

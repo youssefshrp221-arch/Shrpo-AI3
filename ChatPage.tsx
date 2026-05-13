@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useCallback } from "react"
 import {
   Box,
   VStack,
@@ -7,7 +7,6 @@ import {
   Icon,
   Heading,
   SimpleGrid,
-  Flex,
 } from "@chakra-ui/react"
 import {
   LuBrain,
@@ -17,12 +16,10 @@ import {
   LuCalculator,
   LuGlobe,
   LuStar,
-  LuChevronDown,
-  LuEye,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { supabase, getSessionId, initializeSessionId } from "@/lib/supabase"
-import { streamChat } from "@/lib/nvidia"
+import { streamChat, getVisionModel, isVisionModel } from "@/lib/nvidia"
 import { streamChatWithFallback } from "@/lib/modelOrchestrator"
 import { toaster } from "@/components/ui/toaster"
 import MessageBubble from "@/components/MessageBubble"
@@ -32,12 +29,12 @@ import type { Message, Attachment } from "@/types"
 import { v4 as uuidv4 } from "uuid"
 
 const SUGGESTIONS = [
-  { icon: LuCode, text: "Write a Python function to sort a list of dictionaries" },
-  { icon: LuSquarePen, text: "Help me write a compelling product description" },
-  { icon: LuSearch, text: "Explain quantum entanglement in simple terms" },
-  { icon: LuCalculator, text: "Solve this calculus problem step by step" },
-  { icon: LuGlobe, text: "Translate and summarize this text" },
-  { icon: LuStar, text: "Generate creative story ideas for my novel" },
+  { icon: LuCode, text: "اكتب دالة Python لفرز قائمة من القواميس" },
+  { icon: LuSquarePen, text: "ساعدني في كتابة وصف منتج مقنع" },
+  { icon: LuSearch, text: "اشرح التشابك الكمي بأسلوب بسيط" },
+  { icon: LuCalculator, text: "احل هذه المسألة الحسابية خطوة بخطوة" },
+  { icon: LuGlobe, text: "ترجم وتلخيص هذا النص" },
+  { icon: LuStar, text: "اقترح أفكار قصصية إبداعية لروايتي" },
 ]
 
 interface ChatPageProps {
@@ -63,30 +60,33 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messages = activeChatId ? (localMessages[activeChatId] || []) : []
+  const loadedChatsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    if (activeChatId) loadMessages()
+    if (activeChatId) loadMessages(activeChatId)
   }, [activeChatId])
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
+  }, [messages.length])
 
-  const loadMessages = async () => {
-    if (!activeChatId) return
-    if (localMessages[activeChatId]?.length) return
+  const loadMessages = async (chatId: string) => {
+    // Only load from DB if not already loaded and supabase is available
+    if (loadedChatsRef.current.has(chatId)) return
+    loadedChatsRef.current.add(chatId)
+
+    // If already cached locally, skip DB
+    if (localMessages[chatId]?.length) return
+
+    if (!supabase) return
     const userId = getSessionId()
     const { data } = await supabase
       .from("messages")
       .select("*")
-      .eq("chat_id", activeChatId)
+      .eq("chat_id", chatId)
       .eq("user_id", userId)
       .order("created_at", { ascending: true })
-    if (data) setLocalMessages(activeChatId, data as Message[])
+    if (data && data.length > 0) setLocalMessages(chatId, data as Message[])
   }
 
   const handleStop = () => {
@@ -98,31 +98,72 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
   }
 
   const handleSend = useCallback(async (content: string, attachments: Attachment[]) => {
-    if (!activeChatId) return
+    if (!activeChatId || isStreaming) return
 
     initializeSessionId()
     const userId = getSessionId()
+
+    // Determine if we have image attachments → need vision model
+    const hasImages = attachments.some(a => a.type === "image")
+    let activeModel = selectedModel
+    if (hasImages && !isVisionModel(selectedModel)) {
+      activeModel = getVisionModel()
+      setSelectedModel(activeModel)
+      toaster.create({
+        title: "تم التبديل لنموذج الرؤية",
+        description: "تم اختيار نموذج يدعم تحليل الصور تلقائياً",
+        type: "info",
+      })
+    }
+
+    // Build user message content with images
+    let messageContent: any = content
+    if (hasImages) {
+      const parts: any[] = []
+      if (content.trim()) parts.push({ type: "text", text: content })
+      for (const att of attachments) {
+        if (att.type === "image" && att.base64) {
+          parts.push({ type: "image_url", image_url: { url: att.base64 } })
+        } else if (att.type === "image") {
+          parts.push({ type: "text", text: `[صورة: ${att.name}]` })
+        }
+        if (att.fileText) {
+          parts.push({ type: "text", text: `\n\n[محتوى الملف - ${att.name}]:\n${att.fileText}` })
+        }
+      }
+      messageContent = parts
+    } else if (attachments.some(a => a.fileText)) {
+      // Text file context appended
+      const fileContexts = attachments
+        .filter(a => a.fileText)
+        .map(a => `[محتوى الملف - ${a.name}]:\n${a.fileText}`)
+        .join("\n\n")
+      messageContent = content + (fileContexts ? `\n\n${fileContexts}` : "")
+    }
 
     const userMsg: Message = {
       id: uuidv4(),
       chat_id: activeChatId,
       role: "user",
-      content,
+      content: typeof messageContent === "string" ? messageContent : content,
       attachments,
       created_at: new Date().toISOString(),
     }
 
     addLocalMessage(activeChatId, userMsg)
-    const { error: insertError } = await supabase.from("messages").insert({
-      id: userMsg.id,
-      chat_id: activeChatId,
-      role: "user",
-      content,
-      attachments: attachments as any,
-      user_id: userId,
-    })
-    if (insertError) {
-      console.error("Error inserting user message:", insertError)
+
+    // Persist user message to DB if available
+    if (supabase) {
+      supabase.from("messages").insert({
+        id: userMsg.id,
+        chat_id: activeChatId,
+        role: "user",
+        content: userMsg.content,
+        attachments: attachments as any,
+        user_id: userId,
+      }).then(({ error }) => {
+        if (error) console.warn("Failed to persist user message:", error.message)
+      })
     }
 
     // Update chat title from first message
@@ -130,7 +171,9 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
     if (currentMsgs.length === 0 && content.length > 0) {
       const title = content.slice(0, 60) + (content.length > 60 ? "..." : "")
       updateLocalChat(activeChatId, { title, updated_at: new Date().toISOString() })
-      await supabase.from("chats").update({ title, updated_at: new Date().toISOString() }).eq("id", activeChatId)
+      if (supabase) {
+        supabase.from("chats").update({ title, updated_at: new Date().toISOString() }).eq("id", activeChatId)
+      }
     }
 
     const assistantId = uuidv4()
@@ -139,7 +182,7 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
       chat_id: activeChatId,
       role: "assistant",
       content: "",
-      model: selectedModel,
+      model: activeModel,
       created_at: new Date().toISOString(),
     }
     addLocalMessage(activeChatId, assistantMsg)
@@ -148,26 +191,29 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
     setStreamController(controller)
     setIsStreaming(true)
 
+    // Build API chat history (text only for non-vision; multimodal for vision)
     const chatHistory = [...currentMsgs, userMsg].map((m) => ({
       role: m.role as "user" | "assistant" | "system",
-      content: m.content,
+      content: m.role === "user" && hasImages && m.id === userMsg.id
+        ? messageContent
+        : (typeof m.content === "string" ? m.content : m.content),
     }))
 
+    // Prepend system prompt
+    const systemMessages = [
+      { role: "system" as const, content: settings.systemPrompt },
+      ...chatHistory,
+    ]
+
     let fullContent = ""
-    let firstChunkReceived = false
 
     try {
       const result = await streamChatWithFallback(
-        chatHistory,
-        selectedModel,
+        systemMessages,
+        activeModel,
         {
           onChunk: (chunk) => {
             fullContent += chunk
-            // Hide loading spinner on first token
-            if (!firstChunkReceived) {
-              firstChunkReceived = true
-              setIsStreaming(false)
-            }
             updateLocalMessage(activeChatId, assistantId, fullContent)
           },
           signal: controller.signal,
@@ -175,52 +221,43 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
         }
       )
 
-      // Final content already updated via chunks
-
-      // Show fallback notification if applicable
       if (result.fallbackCount > 0) {
         const model = result.modelUsed.split("/").pop() || result.modelUsed
         toaster.create({
-          title: `Switched to ${model}`,
-          description: `Primary model unavailable, using fallback`,
+          title: `تم التبديل إلى ${model}`,
+          description: "النموذج الأساسي غير متاح، تم استخدام بديل",
           type: "info",
         })
       }
 
-      // Persist to database
-      const userId = getSessionId()
-      const { error: assistantError } = await supabase.from("messages").insert({
-        id: assistantId,
-        chat_id: activeChatId,
-        role: "assistant",
-        content: result.fullContent,
-        model: result.modelUsed,
-        user_id: userId,
-      })
+      // Persist assistant message
+      if (supabase) {
+        supabase.from("messages").insert({
+          id: assistantId,
+          chat_id: activeChatId,
+          role: "assistant",
+          content: result.fullContent,
+          model: result.modelUsed,
+          user_id: userId,
+        }).then(({ error }) => {
+          if (error) console.warn("Failed to persist assistant message:", error.message)
+        })
 
-      if (assistantError) {
-        console.error("Error inserting assistant message:", assistantError)
-      }
-
-      const { error: chatError } = await supabase
-        .from("chats")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", activeChatId)
-
-      if (chatError) {
-        console.error("Error updating chat:", chatError)
+        supabase.from("chats")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", activeChatId)
       }
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        // User stopped - preserve message
+        // User stopped - keep partial response
       } else {
-        // Never show red error to user - show info toast instead
-        updateLocalMessage(activeChatId, assistantId, fullContent || "Could not generate a response. Please try again.")
+        console.error("Stream error:", err)
         if (!fullContent) {
+          updateLocalMessage(activeChatId, assistantId, "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى.")
           toaster.create({
-            title: "Retrying...",
-            description: "Switching to a backup model, please try again",
-            type: "info",
+            title: "فشل الاتصال",
+            description: "تعذّر الوصول للموديل. تحقق من إعدادات Supabase وNVIDIA API.",
+            type: "error",
           })
         }
       }
@@ -228,17 +265,19 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
       setIsStreaming(false)
       setStreamController(null)
     }
-  }, [activeChatId, selectedModel, settings, localMessages])
+  }, [activeChatId, selectedModel, settings, localMessages, isStreaming])
 
   const handleRegenerate = async () => {
     if (!activeChatId) return
     const msgs = localMessages[activeChatId] || []
+    if (msgs.length < 2) return
     const lastUserMsg = [...msgs].reverse().find((m) => m.role === "user")
     if (!lastUserMsg) return
-    // Remove last assistant message
     const newMsgs = msgs.slice(0, -1)
     setLocalMessages(activeChatId, newMsgs)
-    await supabase.from("messages").delete().eq("id", msgs[msgs.length - 1].id)
+    if (supabase) {
+      supabase.from("messages").delete().eq("id", msgs[msgs.length - 1].id)
+    }
     handleSend(lastUserMsg.content, [])
   }
 
@@ -246,7 +285,7 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
 
   return (
     <Box h="100%" display="flex" flexDirection="column" bg="#0a0a0f" w="full">
-      {/* Header - hidden on mobile, shown on desktop */}
+      {/* Header */}
       <Box
         px={{ base: "4", md: "6" }}
         py={{ base: "2", md: "3" }}
@@ -268,16 +307,16 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
                 {isStreaming ? (
                   <HStack gap="1" as="span">
                     <Box as="span" w="6px" h="6px" borderRadius="full" bg="green.400" style={{ animation: "pulse 1s infinite" }} />
-                    <Box as="span">Generating...</Box>
+                    <Box as="span">جارٍ الإنشاء...</Box>
                   </HStack>
-                ) : "Ready"}
+                ) : "جاهز"}
               </Text>
             </VStack>
           </HStack>
         </HStack>
       </Box>
 
-      {/* Messages area - responsive padding and max-width */}
+      {/* Messages */}
       <Box flex="1" overflowY="auto" position="relative" w="full">
         {showWelcome ? (
           <WelcomeScreen onSuggestion={(s) => handleSend(s, [])} />
@@ -297,17 +336,15 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
         )}
       </Box>
 
-      {/* Model Selector - responsive */}
+      {/* Model Selector */}
       <Box hideBelow="md">
         <ModelSelector mobile={false} />
       </Box>
-
-      {/* Mobile Model Selector */}
       <Box hideFrom="md" flexShrink={0}>
         <ModelSelector mobile={true} />
       </Box>
 
-      {/* Input area - responsive, sticky at bottom */}
+      {/* Input */}
       <Box maxW={{ base: "full", md: "800px" }} mx="auto" w="full" px={{ base: "3", sm: "4", md: "6" }} pb={{ base: "3", md: "4" }} flexShrink={0}>
         <ChatInput onSend={handleSend} onStop={handleStop} />
       </Box>
@@ -354,10 +391,10 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
           WebkitTextFillColor: "transparent",
         }}
       >
-        How can I help you today?
+        كيف يمكنني مساعدتك اليوم؟
       </Heading>
       <Text color="gray.500" fontSize={{ base: "xs", md: "sm" }} mb={{ base: "6", md: "10" }} maxW="400px">
-        I'm Shrpo AI — your all-in-one assistant for coding, writing, analysis, and creative work.
+        أنا Shrpo AI — مساعدك الشامل للبرمجة والكتابة والتحليل والإبداع.
       </Text>
 
       <SimpleGrid columns={{ base: 1, sm: 2, md: 2 }} gap={{ base: "2", md: "3" }} w="full">
@@ -381,7 +418,8 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
             _active={{ bg: "rgba(99,102,241,0.12)" }}
             onClick={() => onSuggestion(s.text)}
             transition="all 0.2s"
-            textAlign="left"
+            textAlign="right"
+            dir="rtl"
           >
             <Box
               w={{ base: "32px", md: "36px" }}
@@ -405,4 +443,3 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
     </Box>
   )
 }
-

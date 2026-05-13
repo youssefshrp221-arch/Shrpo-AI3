@@ -21,7 +21,6 @@ import {
   LuRefreshCw,
   LuPencil,
   LuBrain,
-  LuChevronDown,
 } from "react-icons/lu"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -40,6 +39,22 @@ interface MessageBubbleProps {
   isStreaming?: boolean
 }
 
+/**
+ * Detect if text starts with Arabic/RTL characters
+ */
+function detectDirection(text: string): "rtl" | "ltr" {
+  const rtlChars = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/
+  const stripped = text.trim()
+  if (!stripped) return "ltr"
+  // Check first non-space, non-symbol character
+  for (let i = 0; i < Math.min(stripped.length, 20); i++) {
+    const ch = stripped[i]
+    if (rtlChars.test(ch)) return "rtl"
+    if (/[a-zA-Z0-9]/.test(ch)) return "ltr"
+  }
+  return "ltr"
+}
+
 export default function MessageBubble({
   message,
   onRegenerate,
@@ -52,6 +67,8 @@ export default function MessageBubble({
   const [editContent, setEditContent] = useState(message.content)
 
   const isUser = message.role === "user"
+  const dir = detectDirection(message.content)
+  const textAlign = dir === "rtl" ? "right" : "left"
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content)
@@ -103,7 +120,7 @@ export default function MessageBubble({
         {/* Role label + model */}
         <HStack gap="2" mb="1" flexDir={isUser ? "row-reverse" : "row"}>
           <Text fontSize="2xs" fontWeight="600" color={isUser ? "brand.400" : "cyan.400"} letterSpacing="0.06em" textTransform="uppercase">
-            {isUser ? "You" : "Shrpo AI"}
+            {isUser ? "أنت" : "Shrpo AI"}
           </Text>
           {message.model && !isUser && (
             <Badge size="xs" variant="subtle" colorPalette="gray" fontSize="2xs">
@@ -125,6 +142,7 @@ export default function MessageBubble({
           backdropFilter="blur(10px)"
           position="relative"
           overflow="hidden"
+          dir={dir}
         >
           {editing ? (
             <VStack align="stretch" gap="2">
@@ -142,78 +160,49 @@ export default function MessageBubble({
                 p="2"
                 resize="vertical"
                 _focus={{ outline: "none", borderColor: "brand.500" }}
-                style={{ fontFamily: "inherit" }}
+                style={{ fontFamily: "inherit", direction: dir }}
               />
               <HStack gap="2" justify="flex-end">
-                <Box
-                  as="button"
-                  px="3"
-                  py="1"
-                  borderRadius="lg"
-                  fontSize="xs"
-                  color="gray.400"
-                  _hover={{ color: "white" }}
-                  onClick={() => setEditing(false)}
-                >
-                  Cancel
-                </Box>
-                <Box
-                  as="button"
-                  px="3"
-                  py="1"
-                  borderRadius="lg"
-                  fontSize="xs"
-                  bg="brand.600"
-                  color="white"
-                  _hover={{ bg: "brand.500" }}
-                  onClick={handleSaveEdit}
-                >
-                  Save & Regenerate
-                </Box>
+                <Box as="button" px="3" py="1" borderRadius="lg" fontSize="xs" color="gray.400" _hover={{ color: "white" }} onClick={() => setEditing(false)}>إلغاء</Box>
+                <Box as="button" px="3" py="1" borderRadius="lg" fontSize="xs" bg="brand.600" color="white" _hover={{ bg: "brand.500" }} onClick={handleSaveEdit}>حفظ وإعادة الإنشاء</Box>
               </HStack>
             </VStack>
           ) : (
             <>
               {isUser ? (
-                <Text
-                  fontSize={{ base: "sm", md: "sm" }}
-                  color="gray.200"
-                  lineHeight="1.7"
-                  whiteSpace="pre-wrap"
-                  wordBreak="break-word"
-                >
-                  {message.content}
-                </Text>
+                <>
+                  {/* Show image previews */}
+                  {message.attachments && message.attachments.filter(a => a.type === "image").length > 0 && (
+                    <HStack gap="2" mb="2" flexWrap="wrap">
+                      {message.attachments.filter(a => a.type === "image").map(att => (
+                        <Box key={att.id} as="img" src={att.base64 || att.url} maxH="150px" maxW="200px" borderRadius="lg" objectFit="cover" border="1px solid rgba(99,102,241,0.3)" />
+                      ))}
+                    </HStack>
+                  )}
+                  <Text
+                    fontSize={{ base: "sm", md: "sm" }}
+                    color="gray.200"
+                    lineHeight="1.9"
+                    whiteSpace="pre-wrap"
+                    wordBreak="break-word"
+                    style={{ direction: dir, textAlign }}
+                    fontFamily="'Cairo', 'Inter', sans-serif"
+                  >
+                    {message.content}
+                  </Text>
+                </>
               ) : (
                 <VStack align="stretch" gap="2">
                   {message.thinking && (
                     <AccordionRoot collapsible>
                       <AccordionItem value="thinking">
-                        <AccordionItemTrigger
-                          px="3"
-                          py="2"
-                          bg="rgba(99,102,241,0.08)"
-                          _hover={{ bg: "rgba(99,102,241,0.12)" }}
-                        >
+                        <AccordionItemTrigger px="3" py="2" bg="rgba(99,102,241,0.08)" _hover={{ bg: "rgba(99,102,241,0.12)" }}>
                           <HStack gap="2">
                             <Icon as={LuBrain} boxSize="4" color="cyan.400" />
-                            <Text fontSize="xs" fontWeight="600" color="cyan.300">
-                              عملية التفكير
-                            </Text>
+                            <Text fontSize="xs" fontWeight="600" color="cyan.300">عملية التفكير</Text>
                           </HStack>
                         </AccordionItemTrigger>
-                        <AccordionItemContent
-                          bg="rgba(10,10,20,0.6)"
-                          px="3"
-                          py="2.5"
-                          fontSize="xs"
-                          color="gray.300"
-                          lineHeight="1.6"
-                          whiteSpace="pre-wrap"
-                          wordBreak="break-word"
-                          maxH="200px"
-                          overflow="auto"
-                        >
+                        <AccordionItemContent bg="rgba(10,10,20,0.6)" px="3" py="2.5" fontSize="xs" color="gray.300" lineHeight="1.6" whiteSpace="pre-wrap" wordBreak="break-word" maxH="200px" overflow="auto">
                           {message.thinking}
                         </AccordionItemContent>
                       </AccordionItem>
@@ -223,117 +212,97 @@ export default function MessageBubble({
                     className="markdown-body"
                     fontSize={{ base: "sm", md: "sm" }}
                     color="gray.200"
-                    lineHeight="1.8"
+                    lineHeight="1.9"
                     overflow="auto"
+                    style={{ direction: dir, textAlign, fontFamily: "'Cairo', 'Inter', sans-serif" }}
                     css={{
-                    "& p": { marginBottom: "0.75em" },
-                    "& p:last-child": { marginBottom: 0 },
-                    "& h1, & h2, & h3": { fontWeight: "700", marginTop: "1em", marginBottom: "0.5em", color: "white" },
-                    "& h1": { fontSize: "1.25em" },
-                    "& h2": { fontSize: "1.1em" },
-                    "& h3": { fontSize: "1em" },
-                    "& ul, & ol": { paddingLeft: "1.5em", marginBottom: "0.75em" },
-                    "& li": { marginBottom: "0.25em" },
-                    "& blockquote": {
-                      borderLeft: "3px solid rgba(99,102,241,0.5)",
-                      paddingLeft: "1em",
-                      color: "#94a3b8",
-                      marginLeft: 0,
-                    },
-                    "& table": { width: "100%", borderCollapse: "collapse", marginBottom: "1em" },
-                    "& th, & td": {
-                      border: "1px solid rgba(99,102,241,0.2)",
-                      padding: "0.4em 0.8em",
-                      textAlign: "left",
-                    },
-                    "& th": { background: "rgba(99,102,241,0.1)", fontWeight: "600" },
-                    "& a": { color: "#818cf8", textDecoration: "underline" },
-                    "& hr": { border: "none", borderTop: "1px solid rgba(255,255,255,0.08)", margin: "1em 0" },
-                    "& strong": { color: "white", fontWeight: "600" },
-                    "& em": { color: "#cbd5e1" },
-                    "& .katex": { color: "#e2e8f0", fontSize: "1.05em" },
-                    "& .katex-display": { margin: "0.75em 0", overflowX: "auto", overflowY: "hidden" },
-                    "& .katex-display > .katex": { textAlign: "center" },
-                    "& .katex .base": { color: "#e2e8f0" },
-                    "& .katex .mord, & .katex .mbin, & .katex .mrel, & .katex .mop, & .katex .mopen, & .katex .mclose": { color: "#e2e8f0" },
-                    "& .katex .mfrac-line": { borderColor: "rgba(255,255,255,0.3)" },
-                  }}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                    components={{
-                      code({ node, inline, className, children, ...props }: any) {
-                        const match = /language-(\w+)/.exec(className || "")
-                        return !inline && match ? (
-                          <Box
-                            position="relative"
-                            mb="0.75em"
-                            borderRadius="xl"
-                            overflow="auto"
-                            border="1px solid"
-                            borderColor="rgba(99,102,241,0.15)"
-                            maxW="100%"
-                          >
-                            <HStack
-                              px="3"
-                              py="1.5"
-                              bg="rgba(10,10,20,0.8)"
-                              justify="space-between"
-                              borderBottom="1px solid"
-                              borderColor="rgba(99,102,241,0.1)"
-                            >
-                              <Badge size="xs" variant="subtle" colorPalette="brand" fontSize="2xs">
-                                {match[1]}
-                              </Badge>
-                              <CopyCodeButton code={String(children).replace(/\n$/, "")} />
-                            </HStack>
-                            <SyntaxHighlighter
-                              style={oneDark}
-                              language={match[1]}
-                              PreTag="div"
-                              customStyle={{
-                                margin: 0,
-                                background: "rgba(10,10,18,0.9)",
-                                fontSize: "0.75rem",
-                                borderRadius: 0,
-                              }}
-                              {...props}
-                            >
-                              {String(children).replace(/\n$/, "")}
-                            </SyntaxHighlighter>
-                          </Box>
-                        ) : (
-                          <Box
-                            as="code"
-                            px="1.5"
-                            py="0.5"
-                            bg="rgba(99,102,241,0.12)"
-                            borderRadius="md"
-                            fontSize="0.85em"
-                            color="brand.300"
-                            fontFamily="mono"
-                            {...props}
-                          >
-                            {children}
-                          </Box>
-                        )
+                      "& p": { marginBottom: "0.75em", direction: "inherit" },
+                      "& p:last-child": { marginBottom: 0 },
+                      "& h1, & h2, & h3": { fontWeight: "700", marginTop: "1em", marginBottom: "0.5em", color: "white" },
+                      "& h1": { fontSize: "1.25em" },
+                      "& h2": { fontSize: "1.1em" },
+                      "& h3": { fontSize: "1em" },
+                      "& ul, & ol": { paddingInlineStart: "1.5em", marginBottom: "0.75em" },
+                      "& li": { marginBottom: "0.25em" },
+                      "& blockquote": {
+                        borderInlineStart: "3px solid rgba(99,102,241,0.5)",
+                        paddingInlineStart: "1em",
+                        color: "#94a3b8",
+                        marginInlineStart: 0,
                       },
+                      "& table": { width: "100%", borderCollapse: "collapse", marginBottom: "1em" },
+                      "& th, & td": { border: "1px solid rgba(99,102,241,0.2)", padding: "0.4em 0.8em" },
+                      "& th": { background: "rgba(99,102,241,0.1)", fontWeight: "600" },
+                      "& a": { color: "#818cf8", textDecoration: "underline" },
+                      "& hr": { border: "none", borderTop: "1px solid rgba(255,255,255,0.08)", margin: "1em 0" },
+                      "& strong": { color: "white", fontWeight: "600" },
+                      "& em": { color: "#cbd5e1" },
+                      // Math rendering — always LTR in a separate block
+                      "& .katex": { color: "#e2e8f0", fontSize: "1.05em", direction: "ltr", unicodeBidi: "plaintext" },
+                      "& .katex-display": {
+                        margin: "1em 0",
+                        overflowX: "auto",
+                        overflowY: "hidden",
+                        direction: "ltr",
+                        textAlign: "center",
+                        background: "rgba(99,102,241,0.06)",
+                        borderRadius: "12px",
+                        padding: "0.75em 1em",
+                        border: "1px solid rgba(99,102,241,0.15)",
+                      },
+                      "& .katex-display > .katex": { textAlign: "center" },
                     }}
                   >
-                    {message.content}
-                  </ReactMarkdown>
-                  {isStreaming && (
-                    <Box
-                      display="inline-block"
-                      w="2px"
-                      h="14px"
-                      bg="brand.400"
-                      ml="1"
-                      verticalAlign="middle"
-                      style={{ animation: "blink 1s step-end infinite" }}
-                    />
-                  )}
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                      components={{
+                        code({ node, inline, className, children, ...props }: any) {
+                          const match = /language-(\w+)/.exec(className || "")
+                          return !inline && match ? (
+                            <Box
+                              position="relative"
+                              mb="0.75em"
+                              borderRadius="xl"
+                              overflow="auto"
+                              border="1px solid"
+                              borderColor="rgba(99,102,241,0.15)"
+                              maxW="100%"
+                              dir="ltr"
+                            >
+                              <HStack px="3" py="1.5" bg="rgba(10,10,20,0.8)" justify="space-between" borderBottom="1px solid" borderColor="rgba(99,102,241,0.1)">
+                                <Badge size="xs" variant="subtle" colorPalette="brand" fontSize="2xs">{match[1]}</Badge>
+                                <CopyCodeButton code={String(children).replace(/\n$/, "")} />
+                              </HStack>
+                              <SyntaxHighlighter
+                                style={oneDark}
+                                language={match[1]}
+                                PreTag="div"
+                                customStyle={{ margin: 0, background: "rgba(10,10,18,0.9)", fontSize: "0.75rem", borderRadius: 0, direction: "ltr" }}
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, "")}
+                              </SyntaxHighlighter>
+                            </Box>
+                          ) : (
+                            <Box as="code" px="1.5" py="0.5" bg="rgba(99,102,241,0.12)" borderRadius="md" fontSize="0.85em" color="brand.300" fontFamily="mono" dir="ltr" {...props}>
+                              {children}
+                            </Box>
+                          )
+                        },
+                        // Ensure paragraph direction is auto-detected
+                        p({ children, ...props }: any) {
+                          const text = typeof children === "string" ? children : ""
+                          const pDir = detectDirection(text)
+                          return <p style={{ direction: pDir, textAlign: pDir === "rtl" ? "right" : "left" }} {...props}>{children}</p>
+                        },
+                      }}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                    {isStreaming && (
+                      <Box display="inline-block" w="2px" h="14px" bg="brand.400" ml="1" verticalAlign="middle" style={{ animation: "blink 1s step-end infinite" }} />
+                    )}
                   </Box>
                 </VStack>
               )}
@@ -343,48 +312,17 @@ export default function MessageBubble({
 
         {/* Actions */}
         {!editing && (
-          <HStack
-            gap="1"
-            mt="1"
-            className="msg-actions"
-            opacity={{ base: 1, md: 0 }}
-            transition="opacity 0.2s"
-            flexDir={isUser ? "row-reverse" : "row"}
-          >
-            <IconButton
-              aria-label="Copy"
-              variant="ghost"
-              size="2xs"
-              onClick={handleCopy}
-              color="gray.600"
-              _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }}
-              borderRadius="lg"
-            >
+          <HStack gap="1" mt="1" className="msg-actions" opacity={{ base: 1, md: 0 }} transition="opacity 0.2s" flexDir={isUser ? "row-reverse" : "row"}>
+            <IconButton aria-label="نسخ" variant="ghost" size="2xs" onClick={handleCopy} color="gray.600" _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }} borderRadius="lg">
               <Icon as={copied ? LuCheck : LuCopy} boxSize="11px" />
             </IconButton>
             {isUser && onEdit && (
-              <IconButton
-                aria-label="Edit"
-                variant="ghost"
-                size="2xs"
-                onClick={() => setEditing(true)}
-                color="gray.600"
-                _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }}
-                borderRadius="lg"
-              >
+              <IconButton aria-label="تعديل" variant="ghost" size="2xs" onClick={() => setEditing(true)} color="gray.600" _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }} borderRadius="lg">
                 <Icon as={LuPencil} boxSize="11px" />
               </IconButton>
             )}
             {!isUser && onRegenerate && isLast && (
-              <IconButton
-                aria-label="Regenerate"
-                variant="ghost"
-                size="2xs"
-                onClick={onRegenerate}
-                color="gray.600"
-                _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }}
-                borderRadius="lg"
-              >
+              <IconButton aria-label="إعادة الإنشاء" variant="ghost" size="2xs" onClick={onRegenerate} color="gray.600" _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }} borderRadius="lg">
                 <Icon as={LuRefreshCw} boxSize="11px" />
               </IconButton>
             )}
@@ -403,22 +341,9 @@ function CopyCodeButton({ code }: { code: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <Box
-      as="button"
-      display="flex"
-      alignItems="center"
-      gap="1"
-      px="2"
-      py="0.5"
-      borderRadius="md"
-      fontSize="2xs"
-      color="gray.500"
-      _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }}
-      onClick={handleCopy}
-      transition="all 0.15s"
-    >
+    <Box as="button" display="flex" alignItems="center" gap="1" px="2" py="0.5" borderRadius="md" fontSize="2xs" color="gray.500" _hover={{ color: "gray.300", bg: "rgba(255,255,255,0.05)" }} onClick={handleCopy} transition="all 0.15s">
       <Icon as={copied ? LuCheck : LuCopy} boxSize="10px" />
-      {copied ? "Copied" : "Copy"}
+      {copied ? "تم النسخ" : "نسخ"}
     </Box>
   )
 }

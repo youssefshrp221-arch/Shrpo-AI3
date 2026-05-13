@@ -24,43 +24,43 @@ export default function MainLayout() {
 
     const newChat: Chat = {
       id: uuidv4(),
-      title: "New Chat",
+      title: "محادثة جديدة",
       pinned: false,
-      model: "meta/llama-3.1-405b-instruct",
+      model: "meta/llama-4-maverick-17b-128e-instruct",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
     addLocalChat(newChat)
     setActiveChatId(newChat.id)
     setActiveView("chat")
-    // Persist to Supabase with user_id
-    await supabase.from("chats").insert({
-      id: newChat.id,
-      title: newChat.title,
-      pinned: newChat.pinned,
-      model: newChat.model,
-      user_id: userId,
-    })
+
+    // Persist to Supabase if available
+    if (supabase) {
+      supabase.from("chats").insert({
+        id: newChat.id,
+        title: newChat.title,
+        pinned: newChat.pinned,
+        model: newChat.model,
+        user_id: userId,
+      }).then(({ error }) => {
+        if (error) console.warn("Failed to persist chat:", error.message)
+      })
+    }
   }
 
-  // Auto-create first chat if none exist
+  // Auto-select or create first chat
   useEffect(() => {
     if (localChats.length > 0 && !activeChatId) {
-      // Select first chat if we have chats but no active one
       setActiveChatId(localChats[0].id)
       setActiveView("chat")
     } else if (localChats.length === 0 && !activeChatId) {
-      // Create first chat if we have nothing
       createNewChat()
     }
   }, [])
 
   return (
     <Flex h="100vh" overflow="hidden" bg="#0a0a0f" flexDirection={{ base: "column", md: "row" }}>
-      {/* Sidebar - desktop fixed width, mobile overlay */}
       <Sidebar onNewChat={createNewChat} />
-
-      {/* Main content - adjust for mobile header */}
       <Box
         flex="1"
         overflow="hidden"

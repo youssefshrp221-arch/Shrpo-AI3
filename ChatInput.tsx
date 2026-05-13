@@ -26,17 +26,37 @@ interface ChatInputProps {
   onStop: () => void
 }
 
+/**
+ * Convert a File to a base64 data URL
+ */
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * Extract text from plain text files
+ */
+async function extractFileText(file: File): Promise<string | undefined> {
+  const isText = file.type.startsWith("text/") || file.name.endsWith(".txt") || file.name.endsWith(".md") || file.name.endsWith(".csv")
+  if (!isText) return undefined
+  return await file.text()
+}
+
 export default function ChatInput({ onSend, onStop }: ChatInputProps) {
   const { isStreaming } = useAppStore()
   const [input, setInput] = useState("")
   const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [isRecording, setIsRecording] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = () => {
-    if (!input.trim() && attachments.length === 0) return
-    if (isStreaming) return
+    if ((!input.trim() && attachments.length === 0) || isStreaming || isLoading) return
     onSend(input.trim(), attachments)
     setInput("")
     setAttachments([])
@@ -54,35 +74,60 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
-    // Auto-grow
     const el = e.target
     el.style.height = "auto"
     el.style.height = Math.min(el.scrollHeight, 200) + "px"
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
-    const newAttachments = files.map((f) => {
-      const type = f.type.startsWith("image/")
-        ? "image"
-        : f.type === "application/pdf"
-        ? "pdf"
-        : f.type.startsWith("audio/")
-        ? "audio"
-        : f.type.startsWith("video/")
-        ? "video"
-        : "file"
-      return {
-        id: uuidv4(),
-        type: type as Attachment["type"],
-        name: f.name,
-        url: URL.createObjectURL(f),
-        size: f.size,
-      }
-    })
-    setAttachments((prev) => [...prev, ...newAttachments])
+    if (files.length === 0) return
+    setIsLoading(true)
+
+    try {
+      const newAttachments: Attachment[] = await Promise.all(
+        files.map(async (f) => {
+          const type: Attachment["type"] = f.type.startsWith("image/")
+            ? "image"
+            : f.type === "application/pdf"
+            ? "pdf"
+            : f.type.startsWith("audio/")
+            ? "audio"
+            : f.type.startsWith("video/")
+            ? "video"
+            : "file"
+
+          const att: Attachment = {
+            id: uuidv4(),
+            type,
+            name: f.name,
+            url: URL.createObjectURL(f),
+            size: f.size,
+          }
+
+          // Convert images to base64 for API transmission and preview
+          if (type === "image") {
+            att.base64 = await fileToBase64(f)
+          }
+
+          // Extract text from text files for context
+          const fileText = await extractFileText(f)
+          if (fileText) {
+            att.fileText = fileText
+          }
+
+          return att
+        })
+      )
+
+      setAttachments((prev) => [...prev, ...newAttachments])
+    } catch (err) {
+      console.error("File processing error:", err)
+    } finally {
+      setIsLoading(false)
+    }
     e.target.value = ""
-  }
+  }, [])
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
@@ -94,6 +139,8 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
     if (type === "audio") return LuVolume2
     return LuPaperclip
   }
+
+  const canSend = (input.trim() || attachments.length > 0) && !isStreaming && !isLoading
 
   return (
     <Box
@@ -123,14 +170,22 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
               position="relative"
               minW="0"
             >
-              {att.type === "image" ? (
-                <Box as="img" src={att.url} w="20px" h="20px" objectFit="cover" borderRadius="sm" flexShrink={0} />
+              {att.type === "image" && att.base64 ? (
+                <Box as="img" src={att.base64} w="28px" h="28px" objectFit="cover" borderRadius="sm" flexShrink={0} />
+              ) : att.type === "image" ? (
+                <Box as="img" src={att.url} w="28px" h="28px" objectFit="cover" borderRadius="sm" flexShrink={0} />
               ) : (
                 <Icon as={attachmentIcon(att.type)} boxSize="12px" color="brand.400" flexShrink={0} />
               )}
               <Text fontSize={{ base: "2xs", md: "xs" }} color="gray.400" maxW={{ base: "80px", md: "100px" }} isTruncated>
                 {att.name}
               </Text>
+              {att.type === "image" && (
+                <Text fontSize="2xs" color="cyan.600" fontWeight="600">IMG</Text>
+              )}
+              {att.fileText && (
+                <Text fontSize="2xs" color="green.600" fontWeight="600">TXT</Text>
+              )}
               <Icon
                 as={LuX}
                 boxSize="10px"
@@ -145,7 +200,7 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
         </HStack>
       )}
 
-      {/* Input area - responsive borderRadius and padding */}
+      {/* Input area */}
       <Box
         bg="rgba(15,15,26,0.8)"
         border="1px solid"
@@ -159,7 +214,7 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
         transition="all 0.2s"
         w="full"
       >
-        {/* Textarea - responsive padding */}
+        {/* Textarea */}
         <Box px={{ base: "3", md: "4" }} pt={{ base: "2.5", md: "3" }} pb={{ base: "2", md: "2" }}>
           <Box
             as="textarea"
@@ -167,7 +222,7 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
             value={input}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            placeholder="Message Shrpo AI... (Enter to send, Shift+Enter for new line)"
+            placeholder="اكتب رسالتك... (Enter للإرسال، Shift+Enter لسطر جديد)"
             rows={1}
             w="full"
             bg="transparent"
@@ -178,8 +233,9 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
             fontSize={{ base: "sm", md: "base" }}
             lineHeight="1.6"
             maxW="full"
+            dir="auto"
             style={{
-              fontFamily: "inherit",
+              fontFamily: "'Cairo', 'Inter', sans-serif",
               overflow: "hidden",
               minHeight: "24px",
               maxHeight: "200px",
@@ -191,41 +247,38 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
           />
         </Box>
 
-        {/* Bottom toolbar - responsive layout */}
+        {/* Bottom toolbar */}
         <Flex px={{ base: "2", md: "3" }} pb={{ base: "2", md: "3" }} gap={{ base: "1", md: "2" }} alignItems="center" justify="space-between" minW="0" w="full">
           <Flex gap={{ base: "0.5", md: "1" }} alignItems="center" flexShrink={0}>
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*,application/pdf,audio/*,video/*"
+              accept="image/*,application/pdf,audio/*,video/*,text/plain,text/markdown,.txt,.md,.csv"
               style={{ display: "none" }}
               onChange={handleFileChange}
             />
             <IconButton
-              aria-label="Attach file"
+              aria-label="إرفاق ملف"
               variant="ghost"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
-              color="gray.600"
+              color={isLoading ? "brand.400" : "gray.600"}
               _hover={{ color: "brand.400", bg: "rgba(99,102,241,0.1)" }}
               borderRadius="lg"
-              h="7"
-              minW="7"
-              flexShrink={0}
+              h="7" minW="7" flexShrink={0}
+              disabled={isLoading}
             >
               <Icon as={LuPaperclip} boxSize={{ base: "13px", md: "14px" }} />
             </IconButton>
             <IconButton
-              aria-label="Voice input"
+              aria-label="إدخال صوتي"
               variant="ghost"
               size="sm"
-              color={isRecording ? "red.400" : "gray.600"}
-              _hover={{ color: isRecording ? "red.300" : "brand.400", bg: "rgba(99,102,241,0.1)" }}
+              color="gray.600"
+              _hover={{ color: "brand.400", bg: "rgba(99,102,241,0.1)" }}
               borderRadius="lg"
-              h="7"
-              minW="7"
-              flexShrink={0}
+              h="7" minW="7" flexShrink={0}
             >
               <Icon as={LuMic} boxSize={{ base: "13px", md: "14px" }} />
             </IconButton>
@@ -235,18 +288,11 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
             {isStreaming ? (
               <Box
                 as="button"
-                display="flex"
-                alignItems="center"
-                gap={{ base: "1", md: "1.5" }}
-                px={{ base: "2", md: "3" }}
-                py={{ base: "1", md: "1.5" }}
-                bg="rgba(239,68,68,0.15)"
-                border="1px solid"
-                borderColor="rgba(239,68,68,0.3)"
-                borderRadius="xl"
-                color="red.400"
-                fontSize={{ base: "2xs", md: "xs" }}
-                fontWeight="600"
+                display="flex" alignItems="center" gap={{ base: "1", md: "1.5" }}
+                px={{ base: "2", md: "3" }} py={{ base: "1", md: "1.5" }}
+                bg="rgba(239,68,68,0.15)" border="1px solid" borderColor="rgba(239,68,68,0.3)"
+                borderRadius="xl" color="red.400"
+                fontSize={{ base: "2xs", md: "xs" }} fontWeight="600"
                 cursor="pointer"
                 _hover={{ bg: "rgba(239,68,68,0.25)", borderColor: "rgba(239,68,68,0.5)" }}
                 onClick={onStop}
@@ -255,26 +301,22 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
                 whiteSpace="nowrap"
               >
                 <Icon as={LuCircleStop} boxSize={{ base: "12px", md: "13px" }} flexShrink={0} />
-                <Box hideBelow="sm">Stop</Box>
+                <Box hideBelow="sm">إيقاف</Box>
               </Box>
             ) : (
               <Box
                 as="button"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-                w={{ base: "7", md: "8" }}
-                h={{ base: "7", md: "8" }}
-                bg={input.trim() || attachments.length > 0 ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "rgba(99,102,241,0.15)"}
+                display="flex" alignItems="center" justifyContent="center"
+                w={{ base: "7", md: "8" }} h={{ base: "7", md: "8" }}
+                bg={canSend ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "rgba(99,102,241,0.15)"}
                 borderRadius="xl"
-                color={input.trim() || attachments.length > 0 ? "white" : "gray.700"}
-                cursor={input.trim() || attachments.length > 0 ? "pointer" : "not-allowed"}
-                _hover={input.trim() || attachments.length > 0 ? { shadow: "0 0 15px rgba(99,102,241,0.4)", transform: "scale(1.05)" } : {}}
-                _active={input.trim() || attachments.length > 0 ? { transform: "scale(0.95)" } : {}}
+                color={canSend ? "white" : "gray.700"}
+                cursor={canSend ? "pointer" : "not-allowed"}
+                _hover={canSend ? { shadow: "0 0 15px rgba(99,102,241,0.4)", transform: "scale(1.05)" } : {}}
+                _active={canSend ? { transform: "scale(0.95)" } : {}}
                 onClick={handleSubmit}
                 transition="all 0.15s"
-                minW={{ base: "7", md: "8" }}
-                flexShrink={0}
+                minW={{ base: "7", md: "8" }} flexShrink={0}
               >
                 <Icon as={LuSend} boxSize={{ base: "12px", md: "13px" }} />
               </Box>
@@ -284,7 +326,7 @@ export default function ChatInput({ onSend, onStop }: ChatInputProps) {
       </Box>
 
       <Text fontSize="2xs" color="gray.700" textAlign="center" mt="2" px="2">
-        Shrpo AI may produce inaccurate information. Verify important details.
+        Shrpo AI قد يُنتج معلومات غير دقيقة. تحقق من التفاصيل المهمة.
       </Text>
     </Box>
   )
