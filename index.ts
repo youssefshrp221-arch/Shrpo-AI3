@@ -387,6 +387,7 @@ const ALL_MODELS: ModelConfig[] = [
 ]
 
 export const NVIDIA_MODELS = ALL_MODELS
+export const DEFAULT_MODEL = "moonshotai/kimi-k2.6"
 export const MODEL_REGISTRY: Record<string, ModelConfig> = Object.fromEntries(
   ALL_MODELS.map((model) => [model.id, model])
 )
