@@ -198,18 +198,32 @@ export default function Sidebar({ onNewChat }: SidebarProps) {
               </Box>
             ))}
             {isAdmin && (
-              <Box
-                display="flex" alignItems="center" gap="3"
-                px="3" py="2.5" borderRadius="lg" cursor="pointer"
-                color={activeView === "dev" ? "brand.300" : "gray.400"}
-                bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
-                _hover={{ bg: "rgba(99,102,241,0.08)" }}
-                onClick={() => { setActiveView("dev"); setSidebarOpen(false) }}
-              >
-                <Icon as={devNavItem.icon} boxSize="16px" />
-                <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "500"}>{devNavItem.label}</Text>
-                <Badge ml="auto" size="sm" colorPalette="green" variant="subtle" fontSize="2xs">Dev</Badge>
-              </Box>
+              <>
+                <Box
+                  display="flex" alignItems="center" gap="3"
+                  px="3" py="2.5" borderRadius="lg" cursor="pointer"
+                  color={activeView === "dev" ? "brand.300" : "gray.400"}
+                  bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
+                  _hover={{ bg: "rgba(99,102,241,0.08)" }}
+                  onClick={() => { setActiveView("dev"); setSidebarOpen(false) }}
+                >
+                  <Icon as={devNavItem.icon} boxSize="16px" />
+                  <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "500"}>{devNavItem.label}</Text>
+                  <Badge ml="auto" size="sm" colorPalette="green" variant="subtle" fontSize="2xs">Dev</Badge>
+                </Box>
+                <Box
+                  display="flex" alignItems="center" gap="3"
+                  px="3" py="2.5" borderRadius="lg" cursor="pointer"
+                  color={activeView === "admin" ? "brand.300" : "gray.400"}
+                  bg={activeView === "admin" ? "rgba(99,102,241,0.12)" : "transparent"}
+                  _hover={{ bg: "rgba(99,102,241,0.08)" }}
+                  onClick={() => { setActiveView("admin"); setSidebarOpen(false) }}
+                >
+                  <Icon as={adminNavItem.icon} boxSize="16px" />
+                  <Text fontSize="sm" fontWeight={activeView === "admin" ? "600" : "500"}>{adminNavItem.label}</Text>
+                  <Badge ml="auto" size="sm" colorPalette="purple" variant="subtle" fontSize="2xs">Admin</Badge>
+                </Box>
+              </>
             )}
           </VStack>
         </Box>
@@ -272,19 +286,34 @@ export default function Sidebar({ onNewChat }: SidebarProps) {
           </Box>
         ))}
         {isAdmin && (
-          <Box
-            display="flex" alignItems="center" gap="2.5"
-            px="3" py="2" borderRadius="xl" cursor="pointer"
-            color={activeView === "dev" ? "brand.300" : "gray.500"}
-            bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
-            _hover={{ bg: "rgba(99,102,241,0.1)" }}
-            onClick={() => setActiveView("dev")}
-            transition="all 0.15s" mb="0.5"
-          >
-            <Icon as={devNavItem.icon} boxSize="15px" />
-            <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "400"}>{devNavItem.label}</Text>
-            <Badge ml="auto" size="sm" colorPalette="green" variant="subtle" fontSize="2xs">Dev</Badge>
-          </Box>
+          <>
+            <Box
+              display="flex" alignItems="center" gap="2.5"
+              px="3" py="2" borderRadius="xl" cursor="pointer"
+              color={activeView === "dev" ? "brand.300" : "gray.500"}
+              bg={activeView === "dev" ? "rgba(99,102,241,0.12)" : "transparent"}
+              _hover={{ bg: "rgba(99,102,241,0.1)" }}
+              onClick={() => setActiveView("dev")}
+              transition="all 0.15s" mb="0.5"
+            >
+              <Icon as={devNavItem.icon} boxSize="15px" />
+              <Text fontSize="sm" fontWeight={activeView === "dev" ? "600" : "400"}>{devNavItem.label}</Text>
+              <Badge ml="auto" size="sm" colorPalette="green" variant="subtle" fontSize="2xs">Dev</Badge>
+            </Box>
+            <Box
+              display="flex" alignItems="center" gap="2.5"
+              px="3" py="2" borderRadius="xl" cursor="pointer"
+              color={activeView === "admin" ? "brand.300" : "gray.500"}
+              bg={activeView === "admin" ? "rgba(99,102,241,0.12)" : "transparent"}
+              _hover={{ bg: "rgba(99,102,241,0.1)" }}
+              onClick={() => setActiveView("admin")}
+              transition="all 0.15s" mb="0.5"
+            >
+              <Icon as={adminNavItem.icon} boxSize="15px" />
+              <Text fontSize="sm" fontWeight={activeView === "admin" ? "600" : "400"}>{adminNavItem.label}</Text>
+              <Badge ml="auto" size="sm" colorPalette="purple" variant="subtle" fontSize="2xs">Admin</Badge>
+            </Box>
+          </>
         )}
       </Box>
 

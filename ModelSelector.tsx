@@ -73,25 +73,34 @@ interface ModelSelectorProps {
   mobile?: boolean
 }
 
+// The Qwen coder model is reserved for DevStudio (admin only)
+const ADMIN_ONLY_MODELS = ["qwen/qwen3-coder-480b-a35b-instruct"]
+
 export default function ModelSelector({ mobile = false }: ModelSelectorProps) {
-  const { selectedModel, setSelectedModel } = useAppStore()
+  const { selectedModel, setSelectedModel, isAdmin } = useAppStore()
   const [open, setOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [filteredModels, setFilteredModels] = useState<ModelConfig[]>(NVIDIA_MODELS)
+
+  // Models available to the current user (hide admin-only models for regular users)
+  const availableModels = isAdmin
+    ? NVIDIA_MODELS
+    : NVIDIA_MODELS.filter((m) => !ADMIN_ONLY_MODELS.includes(m.id))
+
+  const [filteredModels, setFilteredModels] = useState<ModelConfig[]>(availableModels)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const currentModel = NVIDIA_MODELS.find(m => m.id === selectedModel) || NVIDIA_MODELS[0]
+  const currentModel = availableModels.find(m => m.id === selectedModel) || availableModels[0]
 
   // Filter models based on search
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setFilteredModels(NVIDIA_MODELS)
+      setFilteredModels(availableModels)
       return
     }
 
     const query = searchQuery.toLowerCase()
     setFilteredModels(
-      NVIDIA_MODELS.filter(
+      availableModels.filter(
         m =>
           m.name.toLowerCase().includes(query) ||
           m.description.toLowerCase().includes(query) ||
@@ -99,7 +108,7 @@ export default function ModelSelector({ mobile = false }: ModelSelectorProps) {
           m.type.toLowerCase().includes(query)
       )
     )
-  }, [searchQuery])
+  }, [searchQuery, isAdmin])
 
   // Close on outside click
   useEffect(() => {

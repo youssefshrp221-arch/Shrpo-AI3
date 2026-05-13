@@ -3,7 +3,12 @@ import { persist } from "zustand/middleware"
 import type { Chat, Message, AppSettings, WritingProject } from "@/types"
 import { DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT } from "@/types"
 
+// Admin email — server also checks process.env.ADMIN_EMAIL
 const ADMIN_EMAIL = "joeshrp4@gmail.com"
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!(email && email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase())
+}
 
 interface AppStore {
   // Active state
@@ -54,6 +59,8 @@ interface AppStore {
   isAdmin: boolean
   setIsAdmin: (admin: boolean) => void
   checkAdmin: (email: string) => boolean
+  // Re-compute isAdmin from persisted userEmail (call on app startup)
+  rehydrateAdmin: () => void
 }
 
 export const useAppStore = create<AppStore>()(
@@ -136,11 +143,18 @@ export const useAppStore = create<AppStore>()(
       // Auth & Admin
       userEmail: null,
       setUserEmail: (email) => {
-        set({ userEmail: email, isAdmin: email === ADMIN_EMAIL })
+        const trimmed = email?.trim() || null
+        set({ userEmail: trimmed, isAdmin: isAdminEmail(trimmed) })
       },
       isAdmin: false,
       setIsAdmin: (admin) => set({ isAdmin: admin }),
-      checkAdmin: (email) => email === ADMIN_EMAIL,
+      checkAdmin: (email) => isAdminEmail(email),
+
+      // Re-derive isAdmin from persisted email on app startup
+      rehydrateAdmin: () => {
+        const { userEmail } = get()
+        set({ isAdmin: isAdminEmail(userEmail) })
+      },
     }),
     {
       name: "shrpo-ai-store",
@@ -154,7 +168,7 @@ export const useAppStore = create<AppStore>()(
         activeChatId: state.activeChatId,
         activeView: state.activeView,
         userEmail: state.userEmail,
-        isAdmin: state.isAdmin,
+        // Do NOT persist isAdmin — always re-derive from userEmail on startup
       }),
     }
   )

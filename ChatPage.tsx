@@ -331,6 +331,10 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
                 onRegenerate={i === messages.length - 1 ? handleRegenerate : undefined}
               />
             ))}
+            {/* Thinking indicator: shown when streaming but no content yet */}
+            {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && (
+              <ThinkingIndicator />
+            )}
             <div ref={messagesEndRef} />
           </Box>
         )}
@@ -347,6 +351,66 @@ export default function ChatPage({ onNewChat }: ChatPageProps) {
       {/* Input */}
       <Box maxW={{ base: "full", md: "800px" }} mx="auto" w="full" px={{ base: "3", sm: "4", md: "6" }} pb={{ base: "3", md: "4" }} flexShrink={0}>
         <ChatInput onSend={handleSend} onStop={handleStop} />
+      </Box>
+    </Box>
+  )
+}
+
+function ThinkingIndicator() {
+  return (
+    <Box
+      display="flex"
+      alignItems="flex-start"
+      gap="3"
+      mb="4"
+      dir="ltr"
+    >
+      <Box
+        w="32px"
+        h="32px"
+        borderRadius="full"
+        bg="linear-gradient(135deg, #6366f1, #8b5cf6)"
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        flexShrink={0}
+        shadow="0 0 12px rgba(99,102,241,0.35)"
+      >
+        <Icon as={LuBrain} boxSize="15px" color="white" />
+      </Box>
+      <Box
+        bg="rgba(15,15,26,0.9)"
+        border="1px solid"
+        borderColor="rgba(99,102,241,0.2)"
+        borderRadius="2xl"
+        px="4"
+        py="3"
+        maxW="240px"
+      >
+        <HStack gap="2" align="center">
+          <Text fontSize="xs" color="gray.400">جارٍ التفكير</Text>
+          <HStack gap="1">
+            {[0, 1, 2].map((i) => (
+              <Box
+                key={i}
+                w="6px"
+                h="6px"
+                borderRadius="full"
+                bg="brand.500"
+                style={{
+                  animation: `thinkingDot 1.4s ease-in-out ${i * 0.2}s infinite`,
+                  opacity: 0.3,
+                }}
+              />
+            ))}
+          </HStack>
+        </HStack>
+        <style>{`
+          @keyframes thinkingDot {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1.1); }
+          }
+        `}</style>
       </Box>
     </Box>
   )
