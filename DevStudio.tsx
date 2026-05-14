@@ -2,12 +2,12 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import Editor from "@monaco-editor/react"
 import {
   Box, HStack, VStack, Text, Button, Flex, Badge,
-  Textarea, Icon, Spinner, Separator,
+  Textarea, Icon, Spinner,
 } from "@chakra-ui/react"
 import {
   LuTerminal, LuSave, LuRefreshCw, LuSend, LuCheck,
-  LuX, LuCode, LuFolder, LuUpload, LuShieldCheck,
-  LuBot, LuUser, LuFileDiff, LuFileCode, LuTrash2,
+  LuX, LuCode, LuUpload, LuShieldCheck,
+  LuBot, LuFileDiff, LuFileCode, LuTrash2,
 } from "react-icons/lu"
 import { useAppStore } from "@/store/appStore"
 import { toaster } from "@/components/ui/toaster"
