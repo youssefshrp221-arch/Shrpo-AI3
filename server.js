@@ -146,68 +146,54 @@ app.post("/api/dev/chat", requireAdmin, async (req, res) => {
   const { messages, imageBase64 } = req.body
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages array required" })
 
+  const hasImage = !!(imageBase64 && typeof imageBase64 === "string" && imageBase64.startsWith("data:image"))
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 120_000)
 
   try {
-    let coderMessages = messages
+    let apiMessages
 
-    // ── Step 1: If image present, run vision model first (non-streaming) ──
-    if (imageBase64 && typeof imageBase64 === "string") {
-      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
-      const userText = typeof lastUserMsg?.content === "string"
-        ? lastUserMsg.content
-        : "Analyze this image and describe what you see, especially any model names, code, or UI elements."
+    if (hasImage) {
+      // ── Vision path: build messages with image_url content directly ──
+      // Only the last user message carries the image; history is text-only
+      const history = messages.slice(0, -1).map((m) => ({
+        role: m.role,
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      }))
+      const lastUser = messages[messages.length - 1]
+      const userText = typeof lastUser?.content === "string"
+        ? lastUser.content
+        : "Analyze this image carefully and help me with the request."
 
-      const visionRes = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+      apiMessages = [
+        {
+          role: "system",
+          content:
+            "You are Shrpo Dev AI — a multimodal code editor assistant. " +
+            "When an image is provided, analyze it carefully: extract model names, " +
+            "code snippets, UI layouts, configuration values, or any visible text. " +
+            "Then fulfill the user's request (write code, suggest edits, etc.). " +
+            "When writing code, wrap it in a markdown code block with the language tag. " +
+            "Never remove isAdmin, rehydrateAdmin, isAdminEmail, ADMIN_EMAIL, or any auth code.",
         },
-        body: JSON.stringify({
-          model: "meta/llama-3.2-90b-vision-instruct",
-          messages: [
-            {
-              role: "system",
-              content: "You are a vision assistant. Analyze the image carefully and extract all relevant information: model names, code snippets, UI layouts, text, or any other visible content. Be precise and comprehensive.",
-            },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: userText },
-                { type: "image_url", image_url: { url: imageBase64 } },
-              ],
-            },
-          ],
-          temperature: 0.1,
-          max_tokens: 2048,
-          stream: false,
-        }),
-      })
-
-      if (!visionRes.ok) {
-        let errBody = { error: `Vision API error: ${visionRes.status}` }
-        try { errBody = await visionRes.json() } catch {}
-        clearTimeout(timeout)
-        return res.status(visionRes.status).json(errBody)
-      }
-
-      const visionData = await visionRes.json()
-      const visionText = visionData?.choices?.[0]?.message?.content || ""
-
-      // ── Step 2: Feed vision analysis into coder model ──
-      coderMessages = [
-        ...messages.slice(0, -1), // all except last user message
+        ...history,
         {
           role: "user",
-          content: `[Image Analysis Result]\n${visionText}\n\n[User Request]\n${typeof lastUserMsg?.content === "string" ? lastUserMsg.content : ""}`,
+          content: [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: imageBase64 } },
+          ],
         },
       ]
+    } else {
+      // ── Coder path: text-only with file context already in system message ──
+      apiMessages = messages
     }
 
-    // ── Stream coder model response ──
+    const model = hasImage
+      ? "meta/llama-3.2-90b-vision-instruct"
+      : "qwen/qwen3-coder-480b-a35b-instruct"
+
     const upstream = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
       method: "POST",
       signal: controller.signal,
@@ -217,10 +203,10 @@ app.post("/api/dev/chat", requireAdmin, async (req, res) => {
         Accept: "text/event-stream",
       },
       body: JSON.stringify({
-        model: "qwen/qwen3-coder-480b-a35b-instruct",
-        messages: coderMessages,
-        temperature: 0.2,
-        max_tokens: 8192,
+        model,
+        messages: apiMessages,
+        temperature: hasImage ? 0.1 : 0.2,
+        max_tokens: hasImage ? 4096 : 8192,
         stream: true,
       }),
     })
@@ -228,7 +214,7 @@ app.post("/api/dev/chat", requireAdmin, async (req, res) => {
     clearTimeout(timeout)
 
     if (!upstream.ok) {
-      let errBody = { error: `NVIDIA API error: ${upstream.status}` }
+      let errBody = { error: `NVIDIA API error (${model}): ${upstream.status}` }
       try { errBody = await upstream.json() } catch {}
       return res.status(upstream.status).json(errBody)
     }
@@ -237,6 +223,8 @@ app.post("/api/dev/chat", requireAdmin, async (req, res) => {
     res.setHeader("Cache-Control", "no-cache")
     res.setHeader("X-Accel-Buffering", "no")
     res.setHeader("Connection", "keep-alive")
+    // Tell the frontend which model is responding
+    res.setHeader("X-Model-Used", model)
 
     const reader = upstream.body.getReader()
     while (true) {

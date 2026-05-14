@@ -29,6 +29,7 @@ interface ChatMsg {
   code?: string
   codeFile?: string
   applied?: boolean
+  model?: "vision" | "coder"
   ts: number
 }
 
@@ -239,37 +240,44 @@ export default function DevStudio() {
     if (isStreaming) return
 
     const hasImage = !!pendingImage
-    const useLastImage = !hasImage && sessionCtx.lastImageBase64 && text.toLowerCase().includes("الصورة")
+    const useLastImage = !hasImage && !!sessionCtx.lastImageBase64 &&
+      (text.includes("الصورة") || text.includes("image") || text.includes("صورة"))
 
-    // Add user message to chat
+    // Capture image data BEFORE clearing state
+    const imgBase64 = hasImage ? pendingImage!.base64 : (useLastImage ? sessionCtx.lastImageBase64 : null)
+    const imgPreview = hasImage ? pendingImage!.preview : undefined
+    const imgName   = hasImage ? pendingImage!.name : (useLastImage ? sessionCtx.lastImageName : null)
+
+    // Add user message
     const userMsg: ChatMsg = {
       id: uid(),
       role: "user",
-      content: text || (hasImage ? `[صورة: ${pendingImage!.name}]` : ""),
-      imagePreview: pendingImage?.preview,
+      content: text || (hasImage ? `[صورة: ${imgName}]` : ""),
+      imagePreview: imgPreview,
       ts: Date.now(),
     }
     setMessages((m) => [...m, userMsg])
     setInputText("")
-    const imgToSend = hasImage ? pendingImage!.base64 : (useLastImage ? sessionCtx.lastImageBase64 : null)
     setPendingImage(null)
     setIsStreaming(true)
 
-    // Build system prompt with file context
+    // ── Build API messages ──
+    // For text-only: include file context in system prompt (server passes as-is to coder model)
+    // For image: server builds the image_url payload itself — we just send text history + imageBase64
     const sysContent =
       `You are Shrpo Dev AI — a code editor AI assistant.\n` +
       (activeFile
-        ? `Active file: ${activeFile}\n\nFile content:\n\`\`\`${getLanguage(activeFile)}\n${fileContent}\n\`\`\`\n\n`
+        ? `Active file: ${activeFile}\n\nFile content:\n\`\`\`${getLanguage(activeFile)}\n${fileContent.slice(0, 6000)}\n\`\`\`\n\n`
         : "") +
-      (sessionCtx.lastImageAnalysis
+      (!imgBase64 && sessionCtx.lastImageAnalysis
         ? `Previous image analysis context:\n${sessionCtx.lastImageAnalysis}\n\n`
         : "") +
       `Rules:\n` +
-      `- When asked to edit code, return the COMPLETE updated file wrapped in a markdown code block.\n` +
-      `- Never remove isAdmin, rehydrateAdmin, isAdminEmail, ADMIN_EMAIL or any authentication code.\n` +
-      `- Be concise in explanations. Speak Arabic when replying to Arabic questions.`
+      `- Return COMPLETE updated file content in a markdown code block when editing.\n` +
+      `- Never remove isAdmin, rehydrateAdmin, isAdminEmail, ADMIN_EMAIL, or auth code.\n` +
+      `- Reply in Arabic when the user writes in Arabic.`
 
-    // Build messages history (last 8 + new)
+    // History: text-only content (strip any image content from old messages)
     const historyMsgs = messages
       .filter((m) => m.role !== "system")
       .slice(-8)
@@ -278,12 +286,13 @@ export default function DevStudio() {
     const apiMessages = [
       { role: "system", content: sysContent },
       ...historyMsgs,
-      { role: "user", content: text },
+      { role: "user", content: text || "تحليل هذه الصورة" },
     ]
 
-    // Add streaming assistant message placeholder
+    // Placeholder for streaming response — track which model we're expecting
     const asstId = uid()
-    setMessages((m) => [...m, { id: asstId, role: "assistant", content: "", ts: Date.now() }])
+    const modelUsed: "vision" | "coder" = imgBase64 ? "vision" : "coder"
+    setMessages((m) => [...m, { id: asstId, role: "assistant", content: "", model: modelUsed, ts: Date.now() }])
 
     try {
       const res = await fetch("/api/dev/chat", {
@@ -291,13 +300,13 @@ export default function DevStudio() {
         headers: { "Content-Type": "application/json", "x-user-email": userEmail || "" },
         body: JSON.stringify({
           messages: apiMessages,
-          imageBase64: imgToSend || undefined,
+          imageBase64: imgBase64 || undefined,
         }),
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || `HTTP ${res.status}`)
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `HTTP ${res.status}`)
       }
 
       const reader = res.body!.getReader()
@@ -318,8 +327,8 @@ export default function DevStudio() {
               const d = j?.choices?.[0]?.delta?.content
               if (d) {
                 full += d
-                setMessages((m) =>
-                  m.map((msg) => msg.id === asstId ? { ...msg, content: full } : msg)
+                setMessages((prev) =>
+                  prev.map((msg) => msg.id === asstId ? { ...msg, content: full } : msg)
                 )
               }
             } catch {}
@@ -327,33 +336,35 @@ export default function DevStudio() {
         }
       }
 
-      // Extract code from response
+      // Extract code block if present
       const extracted = extractCode(full)
-      if (extracted) {
-        const targetFile = activeFile || guessFileFromResponse(full)
-        setMessages((m) =>
-          m.map((msg) =>
-            msg.id === asstId
-              ? { ...msg, content: full, code: extracted.code, codeFile: targetFile || undefined }
-              : msg
-          )
+      const targetFile = activeFile || guessFileFromResponse(full)
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === asstId
+            ? {
+                ...msg,
+                content: full,
+                code: extracted?.code,
+                codeFile: extracted ? (targetFile || undefined) : undefined,
+              }
+            : msg
         )
-      }
+      )
 
-      // Update session context if image was analyzed
-      if (imgToSend) {
+      // Save to session context
+      if (imgBase64) {
         setSessionCtx((ctx) => ({
           ...ctx,
-          lastImageBase64: hasImage ? imgToSend : ctx.lastImageBase64,
-          lastImageName: hasImage ? pendingImage?.name || ctx.lastImageName : ctx.lastImageName,
-          lastImageAnalysis: full.slice(0, 600),
+          lastImageBase64: hasImage ? imgBase64 : ctx.lastImageBase64,
+          lastImageName: hasImage ? (imgName || ctx.lastImageName) : ctx.lastImageName,
+          lastImageAnalysis: full.slice(0, 800),
         }))
       }
     } catch (err: any) {
-      setMessages((m) =>
-        m.map((msg) => msg.id === asstId
-          ? { ...msg, content: `❌ خطأ: ${err.message}` }
-          : msg
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === asstId ? { ...msg, content: `❌ خطأ: ${err.message}` } : msg
         )
       )
     } finally {
@@ -998,9 +1009,21 @@ function ChatBubble({
           </HStack>
         )}
 
-        <Text fontSize="2xs" color="gray.700" mt="1.5">
-          {new Date(msg.ts).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
-        </Text>
+        <HStack gap="2" mt="1.5">
+          <Text fontSize="2xs" color="gray.700">
+            {new Date(msg.ts).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
+          </Text>
+          {msg.model && (
+            <Badge
+              colorPalette={msg.model === "vision" ? "purple" : "brand"}
+              variant="subtle"
+              fontSize="2xs"
+              px="1.5"
+            >
+              {msg.model === "vision" ? "📷 Vision" : "💻 Coder"}
+            </Badge>
+          )}
+        </HStack>
       </Box>
     </Flex>
   )
